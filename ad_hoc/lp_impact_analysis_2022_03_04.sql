@@ -138,6 +138,7 @@ ORDER BY 1, 5
 
 ----------------------------------------------------------
 
+
 WITH PENDING_LOANS AS (
                       SELECT L.ID AS LOAN_ID
                            , L.UNIFIED_ID
@@ -199,7 +200,7 @@ GROUP BY 1, 2, 3, 4
 
 ----------------------------------------------------------------------------
 
-
+-- CREATE OR REPLACE VIEW ABOVE_PUBLIC.VERIFICATION_FUNNEL_V AS
 WITH DOCUMENT_DATA AS (
                       SELECT DISTINCT
                              L.ID AS LOAN_ID
@@ -409,10 +410,10 @@ WITH DOCUMENT_DATA AS (
                          FROM DOCUMENT_DATA D
                               LEFT JOIN DOC_GROUPING_CLASSIFICATION DGC ON D.LOAN_ID = DGC.LOAN_ID
                          )
-   , DAYS AS (
-             SELECT seq4() AS DAYS
-             FROM TABLE (generator(ROWCOUNT => 29))
-             )
+   , DAY_SEQUENCE AS (
+                     SELECT row_number() OVER (ORDER BY seq4()) - 1 AS DAYS
+                     FROM TABLE (generator(ROWCOUNT => 29))
+                     )
 
 -- Total application funnel by day
 SELECT APPLICATION_DATE - dayofweek(APPLICATION_DATE - 6) AS APPLICATION_WEEK
@@ -456,5 +457,6 @@ SELECT APPLICATION_DATE - dayofweek(APPLICATION_DATE - 6) AS APPLICATION_WEEK
            END AS APPROVED_FLG
      , IFF(APPLICATION_DATE + D.DAYS <= CURRENT_DATE, 1, 0) AS IS_SEASONED
 FROM APPLICATION_DATA
-     CROSS JOIN DAYS D
+     CROSS JOIN DAY_SEQUENCE D
+ORDER BY APPLICATION_DATE, UNIFIED_ID, DAYS
 ;
