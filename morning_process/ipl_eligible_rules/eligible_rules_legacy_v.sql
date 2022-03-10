@@ -111,6 +111,21 @@ WITH LAST_NSF AS (
                        AND OFFER.ID IS NULL
                      GROUP BY 1
                      )
+   , SETTLEMENT_SCHEDULE AS (
+                            SELECT PROGRAM_NAME
+                                 , PROGRAM_ID
+                                 , OFFER_ID
+                                 , OFFER_NAME
+                                 , TRANSACTION_STATUS
+                                 , TRANSACTION_TYPE
+                                 , -1 * SUM(TRANSACTION_AMOUNT) AS AMT
+                            FROM CURATED_PROD.CFT.ACTUAL_TRANSACTION
+                            WHERE OFFER_ID IS NOT NULL AND TRANSACTION_TYPE IN ('Settlement Fee', 'Payment')
+                              AND TRANSACTION_STATUS IN ('Completed', 'Scheduled', 'In_Transit', 'Pending')
+                              AND IS_CURRENT_RECORD_FLAG = TRUE
+                            GROUP BY PROGRAM_NAME, PROGRAM_ID, OFFER_ID, OFFER_NAME, TRANSACTION_STATUS
+                                   , TRANSACTION_TYPE
+                            )
    , TL_LIST AS (
                 SELECT TL.TRADELINE_NAME
                      , TL.PROGRAM_NAME
@@ -123,9 +138,9 @@ WITH LAST_NSF AS (
                            ELSE CAST(TL.NEGOTIATION_BALANCE AS DECIMAL(18, 2))
                            END AS NEGOTIATION_BALANCE
                      , CAST(TL2.NU_DSE_ORIGINAL_DEBT_C AS DECIMAL(18, 2)) AS ORIGINAL_BALANCE
-                     , CAST(TL.CREDITOR_PAYMENTS_OUTSTANDING_AMOUNT AS DECIMAL(18, 2)) AS CREDITOR_PAYMENTS_OUTSTANDING_AMOUNT
+                     , SSP.AMT AS CREDITOR_PAYMENTS_OUTSTANDING_AMOUNT
                      , CAST(TL2.ESTIMATED_FEE_C AS DECIMAL(18, 2)) AS ESTIMATED_FEES
-                     , CAST(TL.FEES_OUTSTANDING_AMOUNT AS DECIMAL(18, 2)) AS FEES_OUTSTANDING_AMOUNT
+                     , SSP.AMT AS FEES_OUTSTANDING_AMOUNT
                      , OFFER.OFFER_NAME
                      , OFFER.SETTLEMENT_AMOUNT
                      , nvl(TL2.NU_DSE_NEW_ACCOUNT_NUMBER_C, TL2.NU_DSE_ORIGINAL_ACCOUNT_NUMBER_C) AS ACCOUNT_NUMBER
@@ -135,19 +150,30 @@ WITH LAST_NSF AS (
                      , TL.FEE_BASIS_BALANCE
                 FROM CURATED_PROD.CRM.TRADELINE TL
                      LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_TRADE_LINE_C_VW TL2 ON TL.TRADELINE_ID = TL2.ID
-                     LEFT JOIN CURATED_PROD.CRM.OFFER OFFER ON TL.TRADELINE_NAME = OFFER.TRADELINE_NAME
-                    AND OFFER.IS_CURRENT_RECORD_FLAG = TRUE
-                    AND OFFER.IS_CURRENT_OFFER = TRUE
-                     LEFT JOIN CURATED_PROD.CRM.CREDITOR C_ORIG ON TL.ORIGINAL_CREDITOR_ID = C_ORIG.CREDITOR_ID
-                    AND C_ORIG.IS_CURRENT_RECORD_FLAG
+                     LEFT JOIN CURATED_PROD.CRM.OFFER OFFER
+                               ON TL.TRADELINE_NAME = OFFER.TRADELINE_NAME
+                                   AND OFFER.IS_CURRENT_RECORD_FLAG = TRUE
+                                   AND OFFER.IS_CURRENT_OFFER = TRUE
+                     LEFT JOIN CURATED_PROD.CRM.CREDITOR C_ORIG
+                               ON TL.ORIGINAL_CREDITOR_ID = C_ORIG.CREDITOR_ID
+                                   AND C_ORIG.IS_CURRENT_RECORD_FLAG
                      LEFT JOIN CURATED_PROD.CRM.CREDITOR_ALIAS CA_ORIG
                                ON TL.ORIGINAL_CREDITOR_ALIAS_ID = CA_ORIG.CREDITOR_ALIAS_ID
                                    AND CA_ORIG.IS_CURRENT_RECORD_FLAG
-                     LEFT JOIN CURATED_PROD.CRM.CREDITOR C_CURR ON TL.CURRENT_CREDITOR_ID = C_CURR.CREDITOR_ID
-                    AND C_CURR.IS_CURRENT_RECORD_FLAG
+                     LEFT JOIN CURATED_PROD.CRM.CREDITOR C_CURR
+                               ON TL.CURRENT_CREDITOR_ID = C_CURR.CREDITOR_ID
+                                   AND C_CURR.IS_CURRENT_RECORD_FLAG
                      LEFT JOIN CURATED_PROD.CRM.CREDITOR_ALIAS CA_CURR
                                ON TL.CURRENT_CREDITOR_ALIAS_ID = CA_CURR.CREDITOR_ALIAS_ID
                                    AND CA_CURR.IS_CURRENT_RECORD_FLAG
+                     LEFT JOIN SETTLEMENT_SCHEDULE SSP
+                               ON OFFER.OFFER_ID = SSP.OFFER_ID
+                                   AND SSP.TRANSACTION_STATUS = 'Scheduled'
+                                   AND SSP.TRANSACTION_TYPE = 'Payment'
+                     LEFT JOIN SETTLEMENT_SCHEDULE SSF
+                               ON OFFER.OFFER_ID = SSF.OFFER_ID
+                                   AND SSF.TRANSACTION_STATUS = 'Scheduled'
+                                   AND SSF.TRANSACTION_TYPE = 'Settlement Fee'
                 WHERE TL.IS_CURRENT_RECORD_FLAG = TRUE
                   AND NOT (TL.TRADELINE_SETTLEMENT_STATUS = 'SETTLED' AND
                            TL.TRADELINE_SETTLEMENT_SUB_STATUS = 'PAID OFF')
