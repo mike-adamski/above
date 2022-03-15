@@ -288,7 +288,8 @@ WITH ELIG_FILE_DATA AS (
                                           END
                                 ) AS F9 ON F9.SALESFORCE_ID = D.PROGRAM_ID
                       LEFT JOIN FIVE9_PHONE_LOOKUP F9PL ON D.TELEPHONE_NUMBER = F9PL.TELEPHONE_NUMBER
-                      LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROGRAM_C P_L ON D.PROGRAM_NAME = P_L.NAME
+                      LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROGRAM_C P_L
+                                ON D.PROGRAM_NAME = P_L.NAME AND P_L.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                       LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_C P_B ON D.PROGRAM_NAME = P_B.NAME
                       LEFT JOIN (
                                 SELECT *
@@ -299,7 +300,7 @@ WITH ELIG_FILE_DATA AS (
                                             1
                                 ) PLC ON PLC.PROGRAM_ID_C = P_B.ID
                       LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROSPECT_C AS PR
-                                ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE
+                                ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE AND PR.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                       LEFT JOIN CREDIT_FLAGS CF ON D.PROGRAM_NAME = CF.PROGRAM_NAME
                     , LATERAL (
                      SELECT min(C.CALENDAR_DATE_CST) AS NEXT_DEPOSIT_DATE_PROCESSED
