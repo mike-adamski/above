@@ -382,7 +382,7 @@ WITH ELIG_FILE_DATA AS (
                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 45
                                     THEN FALSE
                                 WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined')
---                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 90
+                                    AND BEYOND_LOAN_STATUS_DATE > current_date - 90
                                     AND NOT (PROGRAM_NAME IN (
                                                              SELECT PROGRAM_NAME
                                                              FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
@@ -395,7 +395,7 @@ WITH ELIG_FILE_DATA AS (
                                     AND BEDROCK_LOAN_APPLICATION_STATUS IS NOT NULL
                                     THEN FALSE
                                 WHEN BEDROCK_LOAN_APPLICATION_STATUS IN ('Decline')
---                                     AND datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) <= 90
+                                    AND datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) <= 90
                                     AND NOT (PROGRAM_NAME IN (
                                                              SELECT PROGRAM_NAME
                                                              FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
@@ -437,7 +437,7 @@ WITH ELIG_FILE_DATA AS (
                                      ('INITIAL_TIL_SUBMIT', 'APPROVED', 'OFFERED_SELECTED', 'ADD_INFO_COMPLETE',
                                       'OFFERED', 'PENDING', 'BASIC_INFO_COMPLETE', 'ONBOARDED') THEN FALSE
                                 WHEN ABOVE_LOAN_STATUS IN ('FRONT_END_DECLINED')
---                                     AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
+                                    AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
                                     AND NOT (PROGRAM_NAME IN (
                                                              SELECT PROGRAM_NAME
                                                              FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
