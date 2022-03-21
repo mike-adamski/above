@@ -855,7 +855,7 @@ WITH LAST_NSF AS (
                  SELECT DISTINCT
                         P.PROGRAM_NAME
                       , P.PROGRAM_ID
-                      , right(P.PROGRAM_ID, 6) AS ACTIVATION_CODE
+                      , RIGHT(coalesce(P.LEGACY_MIGRATION_PROGRAM_ID, P.PROGRAM_ID), 6) AS ACTIVATION_CODE
                       , P.CREATED_DATE_CST AS PROGRAM_CREATED
                       , NEW_OR_AGED_BOOK.PROGRAM_AGE_BUCKET
                       , P.PROGRAM_STATUS
