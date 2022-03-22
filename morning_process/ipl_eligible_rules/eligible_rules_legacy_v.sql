@@ -754,6 +754,232 @@ WITH LAST_NSF AS (
                         AND (FICO IS NOT NULL OR datediff(DAY, PROGRAM.ENROLLED_DATE_C, CURRENT_DATE) >= 365)
                       )
 
+   , CREDITOR_MATRIX_SETTLEMENT_LOGIC AS (
+                                         --Getting DQ when creditors will first offer settlement
+                                         WITH FIRST_ELIGIBLE_INFO AS (
+
+                                                                     SELECT DISTINCT
+                                                                            CREDITOR_BUCKET_NAME
+                                                                          , ORIGINAL_CREDITOR_ALIAS_ID
+                                                                          , min(DAYS_DELINQUENT_MIN) AS DAYS_DELINQUENT_MIN
+                                                                          , NEGOTIATION_BALANCE_MIN
+                                                                          , NEGOTIATION_BALANCE_MAX
+                                                                     FROM REFINED_PROD.CONFIGURATION.CREDITOR_TERMS
+                                                                     WHERE IPL_USE_FLAG = TRUE
+                                                                     GROUP BY 1, 2, 4, 5
+                                                                     ORDER BY 1
+                                                                     )
+
+                                            --Grabbing term, offer rate and min payment for intial offers
+                                            , FIRST_ELIGIBLE_INFO_2 AS (
+
+                                                                       SELECT DISTINCT
+                                                                              A.*
+                                                                            , coalesce(
+                                                                                      CT_ALIAS_LUMP.CURRENT_CREDITOR_BUCKETED,
+                                                                                      CT_NO_ALIAS_LUMP.CURRENT_CREDITOR_BUCKETED) AS CURRENT_CREDITOR_BUCKETED
+                                                                            , coalesce(CT_ALIAS_LUMP.OFFER_PERCENT,
+                                                                                       CT_NO_ALIAS_LUMP.OFFER_PERCENT) AS OFFER_PERCENT_NOT_LEGAL
+                                                                            , coalesce(CT_ALIAS_LUMP.OFFER_PERCENT,
+                                                                                       CT_NO_ALIAS_LUMP.OFFER_PERCENT) +
+                                                                              coalesce(
+                                                                                      CT_ALIAS_LUMP.LEGAL_RATE_INCREASE,
+                                                                                      CT_NO_ALIAS_LUMP.LEGAL_RATE_INCREASE,
+                                                                                      0) AS OFFER_PERCENT_IS_LEGAL
+                                                                            , coalesce(CT_ALIAS_LUMP.AVG_OFFER_TERM,
+                                                                                       CT_NO_ALIAS_LUMP.AVG_OFFER_TERM) AS AVG_OFFER_TERM
+                                                                            , coalesce(
+                                                                                      CT_ALIAS_LUMP.OFFER_MINIMUM_PAYMENT,
+                                                                                      CT_NO_ALIAS_LUMP.OFFER_MINIMUM_PAYMENT) AS OFFER_MINIMUM_PAYMENT
+                                                                            , coalesce(
+                                                                                      CT_ALIAS_LUMP.CREDITOR_BUCKET_NAME,
+                                                                                      CT_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME) AS CREDITOR_BUCKET_NAME_2
+
+                                                                       FROM FIRST_ELIGIBLE_INFO AS A
+
+                                                                                --Only matching in IPL
+                                                                                --when matching on original alias required - When lump sum offer expected (For IPL)
+                                                                            LEFT JOIN
+                                                                            REFINED_PROD.CONFIGURATION.CREDITOR_TERMS AS CT_ALIAS_LUMP
+                                                                            ON CT_ALIAS_LUMP.CREDITOR_BUCKET_NAME = A.CREDITOR_BUCKET_NAME
+                                                                                AND
+                                                                               A.DAYS_DELINQUENT_MIN = CT_ALIAS_LUMP.DAYS_DELINQUENT_MIN
+                                                                                AND
+                                                                               A.NEGOTIATION_BALANCE_MIN = CT_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN
+                                                                                AND
+                                                                               A.ORIGINAL_CREDITOR_ALIAS_ID = CT_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID AND
+                                                                               CT_ALIAS_LUMP.IPL_USE_FLAG = TRUE
+                                                                                --when matching on original alias is not required - When lump sum offer expected (For IPL)
+                                                                            LEFT JOIN
+                                                                            REFINED_PROD.CONFIGURATION.CREDITOR_TERMS AS CT_NO_ALIAS_LUMP
+                                                                            ON CT_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME = A.CREDITOR_BUCKET_NAME
+                                                                                AND
+                                                                               A.DAYS_DELINQUENT_MIN = CT_NO_ALIAS_LUMP.DAYS_DELINQUENT_MIN
+                                                                                AND
+                                                                               A.NEGOTIATION_BALANCE_MIN = CT_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN
+                                                                                AND
+                                                                               CT_NO_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID IS NULL AND
+                                                                               CT_NO_ALIAS_LUMP.IPL_USE_FLAG = TRUE
+
+                                                                       )
+                                            , TRADELINES AS (
+                                                            SELECT P.SOURCE_SYSTEM
+                                                                 , P.PROGRAM_NAME
+                                                                 , P.ENROLLED_DATE_CST
+                                                                 , TL.TRADELINE_NAME
+                                                                 , TL.IS_LEGAL_FLAG
+                                                                 , coalesce(CASE
+                                                                                WHEN BTL.LAST_PAYMENT_DATE_C < '1990-01-01'
+                                                                                    THEN CRL.LAST_ACTIVITY_DATE_C
+                                                                                ELSE BTL.LAST_PAYMENT_DATE_C
+                                                                                END, CRL.LAST_ACTIVITY_DATE_C,
+                                                                            TL.CURRENT_LAST_PAYMENT_DATE_CST) AS LAST_PAYMENT_DATE
+                                                                 , datediff(DAY,
+                                                                            coalesce(LAST_PAYMENT_DATE, P.ENROLLED_DATE_CST),
+                                                                            CURRENT_DATE) - 15 AS DQ
+                                                                 , coalesce(TL.CURRENT_CREDITOR_ID,
+                                                                            TL.CURRENT_CREDITOR_ALIAS_ID,
+                                                                            TL.ORIGINAL_CREDITOR_ID,
+                                                                            TL.ORIGINAL_CREDITOR_ALIAS_ID) AS CURRENT_CREDITOR_ID
+                                                                 , TL.ORIGINAL_CREDITOR_ALIAS_ID
+                                                                 , coalesce(TL.NEGOTIATION_BALANCE,
+                                                                            TL.FEE_BASIS_BALANCE,
+                                                                            TL.ENROLLED_BALANCE) AS NEGOTIATION_BALANCE
+                                                            FROM CURATED_PROD.CRM.TRADELINE TL
+                                                                 LEFT JOIN
+                                                                 CURATED_PROD.CRM.PROGRAM P
+                                                                 ON P.PROGRAM_NAME = TL.PROGRAM_NAME AND P.IS_CURRENT_RECORD_FLAG = TRUE
+                                                                 LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_TRADELINE_C AS BTL
+                                                                           ON BTL.NAME = TL.TRADELINE_NAME AND BTL.IS_DELETED = 'FALSE'
+                                                                 LEFT JOIN REFINED_PROD.BEDROCK.OPPORTUNITY_TRADELINE_C OT
+                                                                           ON BTL.OPPORTUNITY_TRADELINE_ID_C = OT.ID AND OT.IS_DELETED = FALSE
+                                                                 LEFT JOIN REFINED_PROD.BEDROCK.CR_LIABILITY_C CRL
+                                                                           ON CRL.ID = OT.CR_LIABILITY_ID_C AND CRL.IS_DELETED = FALSE
+                                                            WHERE TL.TRADELINE_SETTLEMENT_STATUS NOT IN
+                                                                  ('SETTLED', 'ATTRITED', 'NOT ENROLLED')
+                                                              AND TL.IS_CURRENT_RECORD_FLAG = TRUE
+                                                              AND P.SOURCE_SYSTEM = 'LEGACY'
+                                                              AND P.PROGRAM_STATUS IN ('Active', 'New', 'Enrolled')
+                                                              AND TL.INCLUDE_IN_PROGRAM_FLAG = TRUE
+                                                            )
+                                            , TRADELINES_W_EST_OFFER AS (
+
+                                                                        SELECT DISTINCT
+                                                                            T.PROGRAM_NAME
+                                                                             , T.TRADELINE_NAME
+                                                                             , T.NEGOTIATION_BALANCE
+                                                                             , T.CURRENT_CREDITOR_ID
+                                                                             , C.CREDITOR_NAME
+                                                                             , T.DQ AS CURRENT_DQ
+                                                                             , CASE WHEN CB.CREDITOR_BUCKET_NAME IS NULL THEN 'N' ELSE 'Y' END AS TOP_50_CREDITOR
+                                                                             , CASE
+                                                                                   WHEN coalesce(
+                                                                                           CT_ALIAS_LUMP.OFFER_PERCENT,
+                                                                                           CT_NO_ALIAS_LUMP.OFFER_PERCENT) IS NULL
+                                                                                       THEN 'N'
+                                                                                   ELSE 'Y'
+                                                                                   END AS SETTLEMENT_ELIGIBLE_NOW --i.e. meeting matrix eligibility criteria
+                                                                             , CASE
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'Y' AND T.IS_LEGAL_FLAG = FALSE
+                                                                                       THEN coalesce(
+                                                                                           CT_ALIAS_LUMP.OFFER_PERCENT,
+                                                                                           CT_NO_ALIAS_LUMP.OFFER_PERCENT)
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'Y' AND T.IS_LEGAL_FLAG = TRUE
+                                                                                       THEN (coalesce(
+                                                                                                     CT_ALIAS_LUMP.OFFER_PERCENT,
+                                                                                                     CT_NO_ALIAS_LUMP.OFFER_PERCENT) +
+                                                                                             coalesce(
+                                                                                                     CT_ALIAS_LUMP.LEGAL_RATE_INCREASE,
+                                                                                                     CT_NO_ALIAS_LUMP.LEGAL_RATE_INCREASE,
+                                                                                                     0))
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'N' AND T.IS_LEGAL_FLAG = FALSE
+                                                                                       THEN coalesce(
+                                                                                           CTF_ALIAS_LUMP.OFFER_PERCENT_NOT_LEGAL,
+                                                                                           CTF_NO_ALIAS_LUMP.OFFER_PERCENT_NOT_LEGAL)
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'N' AND T.IS_LEGAL_FLAG = TRUE
+                                                                                       THEN coalesce(
+                                                                                           CTF_ALIAS_LUMP.OFFER_PERCENT_IS_LEGAL,
+                                                                                           CTF_NO_ALIAS_LUMP.OFFER_PERCENT_IS_LEGAL)
+                                                                                   ELSE NULL
+                                                                                   END AS EST_OFFER_PERCENT
+                                                                             , CASE
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'Y'
+                                                                                       THEN coalesce(
+                                                                                           CT_ALIAS_LUMP.CREDITOR_BUCKET_NAME,
+                                                                                           CT_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME)
+                                                                                   WHEN SETTLEMENT_ELIGIBLE_NOW = 'N'
+                                                                                       THEN coalesce(
+                                                                                           CTF_ALIAS_LUMP.CREDITOR_BUCKET_NAME,
+                                                                                           CTF_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME)
+                                                                                   ELSE NULL
+                                                                                   END AS CREDITOR_BUCKET_NAME
+                                                                        FROM TRADELINES AS T
+                                                                             LEFT JOIN
+                                                                             CURATED_PROD.CRM.CREDITOR C
+                                                                             ON T.CURRENT_CREDITOR_ID = C.CREDITOR_ID AND C.IS_CURRENT_RECORD_FLAG
+                                                                             LEFT JOIN REFINED_PROD.CONFIGURATION.CREDITOR_BUCKETS AS CB
+                                                                                       ON T.CURRENT_CREDITOR_ID = CB.CURRENT_CREDITOR_ID
+
+                                                                            --currently eligibile tradelines
+                                                                            --when matching on original alias required - When lump sum offer expected (For IPL)
+                                                                             LEFT JOIN REFINED_PROD.CONFIGURATION.CREDITOR_TERMS AS CT_ALIAS_LUMP
+                                                                                       ON CT_ALIAS_LUMP.CREDITOR_BUCKET_NAME = CB.CREDITOR_BUCKET_NAME
+                                                                                           AND
+                                                                                          T.DQ >= CT_ALIAS_LUMP.DAYS_DELINQUENT_MIN AND
+                                                                                          (CT_ALIAS_LUMP.DAYS_DELINQUENT_MAX IS NULL OR
+                                                                                           T.DQ < CT_ALIAS_LUMP.DAYS_DELINQUENT_MAX)
+                                                                                           AND
+                                                                                          T.NEGOTIATION_BALANCE >= CT_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN AND
+                                                                                          (CT_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX IS NULL OR
+                                                                                           T.NEGOTIATION_BALANCE < CT_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX)
+                                                                                           AND
+                                                                                          T.ORIGINAL_CREDITOR_ALIAS_ID = CT_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID AND
+                                                                                          CT_ALIAS_LUMP.IPL_USE_FLAG = TRUE
+                                                                            --when matching on original alias is not required - When lump sum offer expected (For IPL)
+                                                                             LEFT JOIN
+                                                                             REFINED_PROD.CONFIGURATION.CREDITOR_TERMS AS CT_NO_ALIAS_LUMP
+                                                                             ON CT_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME = CB.CREDITOR_BUCKET_NAME
+                                                                                 AND
+                                                                                T.DQ >= CT_NO_ALIAS_LUMP.DAYS_DELINQUENT_MIN AND
+                                                                                (CT_NO_ALIAS_LUMP.DAYS_DELINQUENT_MAX IS NULL OR
+                                                                                 T.DQ < CT_NO_ALIAS_LUMP.DAYS_DELINQUENT_MAX)
+                                                                                 AND
+                                                                                T.NEGOTIATION_BALANCE >= CT_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN AND
+                                                                                (CT_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX IS NULL OR
+                                                                                 T.NEGOTIATION_BALANCE < CT_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX)
+                                                                                 AND
+                                                                                CT_NO_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID IS NULL AND
+                                                                                CT_NO_ALIAS_LUMP.IPL_USE_FLAG = TRUE
+                                                                                 --For matching info with future eligibile programs
+                                                                                 --when matching on original alias required - (IPL)
+                                                                             LEFT JOIN FIRST_ELIGIBLE_INFO_2 AS CTF_ALIAS_LUMP
+                                                                                       ON CTF_ALIAS_LUMP.CREDITOR_BUCKET_NAME = CB.CREDITOR_BUCKET_NAME
+                                                                                           AND
+                                                                                          T.NEGOTIATION_BALANCE >= CTF_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN AND
+                                                                                          (CTF_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX IS NULL OR
+                                                                                           T.NEGOTIATION_BALANCE < CTF_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX)
+                                                                                           AND
+                                                                                          T.ORIGINAL_CREDITOR_ALIAS_ID =
+                                                                                          CTF_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID
+                                                                            --when no matching on original alias required - (IPL)
+                                                                             LEFT JOIN FIRST_ELIGIBLE_INFO_2 AS CTF_NO_ALIAS_LUMP
+                                                                                       ON CTF_NO_ALIAS_LUMP.CREDITOR_BUCKET_NAME = CB.CREDITOR_BUCKET_NAME
+                                                                                           AND
+                                                                                          T.NEGOTIATION_BALANCE >= CTF_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MIN AND
+                                                                                          (CTF_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX IS NULL OR
+                                                                                           T.NEGOTIATION_BALANCE < CTF_NO_ALIAS_LUMP.NEGOTIATION_BALANCE_MAX)
+                                                                                           AND
+                                                                                          CTF_NO_ALIAS_LUMP.ORIGINAL_CREDITOR_ALIAS_ID IS NULL
+                                                                        )
+
+                                         SELECT PROGRAM_NAME
+                                              , TRADELINE_NAME
+                                              , CREDITOR_NAME
+                                              , ((EST_OFFER_PERCENT + 3) / 100) AS OFFER_PERCENT --adding 3% buffer
+                                         FROM TRADELINES_W_EST_OFFER
+                                         WHERE EST_OFFER_PERCENT IS NOT NULL
+                                         )
+
    , ALL_DATA AS (
                  SELECT DISTINCT
                         PROGRAM.ID AS CLIENT_ID
@@ -783,7 +1009,7 @@ WITH LAST_NSF AS (
                                      WHEN upper(TL_LIST.TRADELINE_SETTLEMENT_STATUS) NOT IN ('SETTLED', 'ATTRITED')
                                          THEN (coalesce(TL_LIST.NEGOTIATION_BALANCE, TL_LIST.FEE_BASIS_BALANCE,
                                                         TL_LIST.ORIGINAL_BALANCE) * 1.00) *
-                                              nvl(C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
+                                              coalesce(MATRIX.OFFER_PERCENT, C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
                                      WHEN upper(TL_LIST.TRADELINE_SETTLEMENT_STATUS) IN ('SETTLED') AND
                                           TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS NOT LIKE 'BUSTED%' AND
                                           TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS != 'PAID OFF'
@@ -792,7 +1018,7 @@ WITH LAST_NSF AS (
                                           TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS LIKE 'BUSTED%'
                                          THEN (coalesce(TL_LIST.NEGOTIATION_BALANCE, TL_LIST.FEE_BASIS_BALANCE,
                                                         TL_LIST.ORIGINAL_BALANCE) * 1.00) *
-                                              nvl(C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
+                                              coalesce(MATRIX.OFFER_PERCENT, C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
                                      ELSE 0
                                      END) OVER (PARTITION BY PROGRAM.ID)
                                  +
@@ -822,7 +1048,7 @@ WITH LAST_NSF AS (
                                                    ('SETTLED', 'ATTRITED')
                                                   THEN (coalesce(TL_LIST.NEGOTIATION_BALANCE, TL_LIST.FEE_BASIS_BALANCE,
                                                                  TL_LIST.ORIGINAL_BALANCE) * 1.00) *
-                                                       nvl(C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
+                                                       coalesce(MATRIX.OFFER_PERCENT, C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
                                               WHEN upper(TL_LIST.TRADELINE_SETTLEMENT_STATUS) IN ('SETTLED') AND
                                                    TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS NOT LIKE 'BUSTED%' AND
                                                    TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS != 'PAID OFF'
@@ -831,7 +1057,7 @@ WITH LAST_NSF AS (
                                                    TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS LIKE 'BUSTED%'
                                                   THEN (coalesce(TL_LIST.NEGOTIATION_BALANCE, TL_LIST.FEE_BASIS_BALANCE,
                                                                  TL_LIST.ORIGINAL_BALANCE) * 1.00) *
-                                                       nvl(C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
+                                                       coalesce(MATRIX.OFFER_PERCENT, C.TOP_90_PERCENT_SETTLEMENT_PCT, .70)
                                               ELSE 0
                                               END)
                                           OVER (PARTITION BY PROGRAM.ID, TL_LIST.TRADELINE_NAME, TL_LIST.CURRENT_CREDITOR) AS DECIMAL(18, 2)),
@@ -851,7 +1077,7 @@ WITH LAST_NSF AS (
                       , PROGRAM.NU_DSE_PROGRAM_STATUS_C AS BEYOND_ENROLLMENT_STATUS
                       , coalesce(LAST_NSF.NSF_3_MOS, 0) AS NSFS_3_MONTHS
                       , TL_LIST.ORIGINAL_CREDITOR
-                      , nvl(C.TOP_90_PERCENT_SETTLEMENT_PCT, .70) AS SETTLEMENT_PERCENT
+                      , coalesce(MATRIX.OFFER_PERCENT, C.TOP_90_PERCENT_SETTLEMENT_PCT, .70) AS SETTLEMENT_PERCENT
                       , TL_LIST.TRADELINE_SETTLEMENT_STATUS || ' - ' ||
                         TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS AS SETTLED_TRADELINED_FLAG
                       , coalesce(DA90.DEPADHERENCE, 0) AS PAYMENT_ADHERENCE_RATIO_3_MONTHS
@@ -940,6 +1166,8 @@ WITH LAST_NSF AS (
                       LEFT JOIN CCPA_EMAIL CCPA6 ON SWC.EMAIL_ADDRESS_CO = CCPA6.CCPA_EMAIL
                       LEFT JOIN DNC DNC2 ON DNC2.DNC_NUMBER = SWC.TELEPHONE_NUMBER_CO
                       LEFT JOIN PROGRAM_NO_CRED ON PROGRAM.NAME = PROGRAM_NO_CRED.PROGRAM_NAME
+                      LEFT JOIN CREDITOR_MATRIX_SETTLEMENT_LOGIC AS MATRIX
+                                ON TL_LIST.TRADELINE_NAME = MATRIX.TRADELINE_NAME
                  WHERE TRUE
                    AND PROSPECT.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                    AND (TL_LIST.TRADELINE_SETTLEMENT_STATUS NOT IN ('ATTRITED', 'NOT ENROLLED')
@@ -965,7 +1193,6 @@ SELECT DISTINCT
      , SUM(SETTLEMENT_AMOUNT) OVER (PARTITION BY A.PROGRAM_ID) AS SETTLEMENT_AMOUNT
      , ESTIMATED_BEYOND_PROGRAM_FEES
      , TOTAL_DEPOSITS
-
      , LAST_PAYMENT_DATE
      , LAST_PAYMENT_DATE2
      , NEXT_PAYMENT_DATE
