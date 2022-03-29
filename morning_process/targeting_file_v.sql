@@ -57,7 +57,7 @@ WITH ELIG_FILE_DATA AS (
                                      WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
                                           try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
                                      WHEN DISPOSITION IN ('Not Interested') AND
-                                          try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 45 THEN TRUE
+                                          try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
                                      ELSE FALSE
                                      END
                            )
@@ -283,7 +283,7 @@ WITH ELIG_FILE_DATA AS (
                                           WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
                                                try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
                                           WHEN DISPOSITION IN ('Not Interested') AND
-                                               try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 45 THEN TRUE
+                                               try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
                                           ELSE FALSE
                                           END
                                 ) AS F9 ON F9.SALESFORCE_ID = D.PROGRAM_ID
@@ -380,7 +380,7 @@ WITH ELIG_FILE_DATA AS (
                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 45
                                     THEN FALSE
                                 WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('Not Interested')
-                                    AND BEYOND_LOAN_STATUS_DATE > current_date - 45
+                                    AND BEYOND_LOAN_STATUS_DATE > current_date - 90
                                     THEN FALSE
                                 WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined')
                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 90
