@@ -86,7 +86,6 @@ WITH ELIG_FILE_DATA AS (
                                    AND CR_C.ID IS NOT NULL
                                  ORDER BY 1, 3
                                  )
-
    //Bankruptcy in last 7 years
    , CR_BANKRUPTCY AS (
 
@@ -105,10 +104,8 @@ WITH ELIG_FILE_DATA AS (
                       HAVING MONTHS_SINCE_BANKRUPTCY_FILE <= 84
                       ORDER BY 1
                       )
-
    //Repossession/Foreclosure in last 7 years
    , CR_REPO_FORECLOSURE AS (
-
                             SELECT DISTINCT
                                    A.PROGRAM_NAME
                                  , 'Repo/Foreclosure in last 7 years' AS REASON
@@ -133,10 +130,8 @@ WITH ELIG_FILE_DATA AS (
                             HAVING MONTHS_SINCE_REPO_FORECLOSURE <= 84
                             ORDER BY 1
                             )
-
    //New Mortgage, Auto or Educational TL in last 6 months
    , CR_NEW_MORT_AUTO_ED AS (
-
                             SELECT DISTINCT
                                    A.PROGRAM_NAME
                                  , 'New Mortgage, Auto or Educational TL' AS REASON
@@ -158,10 +153,8 @@ WITH ELIG_FILE_DATA AS (
                             HAVING NEW_TL_COUNT > 0
                             ORDER BY 1
                             )
-
    //Auto or Mortgage missed payment in last 6 months
    , CR_MORT_AUTO_MISSED AS (
-
                             SELECT DISTINCT
                                    A.PROGRAM_NAME
                                  , 'Auto or Mortgage missed payment' AS REASON
@@ -429,7 +422,7 @@ WITH ELIG_FILE_DATA AS (
                                     AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
                                     THEN FALSE
                                 WHEN ABOVE_LOAN_STATUS IN ('BACK_END_DECLINED')
---                                     AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
+                                    AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
                                     THEN FALSE -- Temporarily hold retargeting cohorts out of the dialer
                                 WHEN ABOVE_LOAN_STATUS IN ('EXPIRED') AND
                                      ABOVE_APPLICATION_DATE >= CURRENT_DATE - (28 + 45) --45 days from loan expiration
