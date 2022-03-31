@@ -411,7 +411,7 @@ WITH LAST_NSF AS (
                                 OR (DSMR.CURRENT_STATUS IN ('BACK_END_DECLINED') AND
                                     datediff(DAY, DSMR.APP_SUBMIT_DATE, CURRENT_DATE) <= 90)
                                 OR (DSMR.CURRENT_STATUS IN ('FRONT_END_DECLINED') AND
-                                    datediff(DAY, DSMR.APP_SUBMIT_DATE, CURRENT_DATE) <= 30)
+                                    datediff(DAY, DSMR.APP_SUBMIT_DATE, CURRENT_DATE) <= 90)
                              )
    , CFT_MONTHLY_FEES AS (
                          SELECT PROGRAMS.ID AS PROGRAM_ID

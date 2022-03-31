@@ -455,7 +455,7 @@ WITH LAST_NSF AS (
                                  OR (DSMR.CURRENT_STATUS IN ('BACK_END_DECLINED') AND
                                      datediff(DAY, DSMR.APP_SUBMIT_DATE, current_date) <= 90)
                                  OR (DSMR.CURRENT_STATUS IN ('FRONT_END_DECLINED') AND
-                                     datediff(DAY, DSMR.APP_SUBMIT_DATE, current_date) <= 30)
+                                     datediff(DAY, DSMR.APP_SUBMIT_DATE, current_date) <= 90)
                                  )
                              )
    , CFT_MONTHLY_FEES AS (
