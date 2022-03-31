@@ -495,7 +495,9 @@ WITH ELIG_FILE_DATA AS (
                                                        'AboveLending-Retarget-OB',
                                                        'BRC-AboveLending-RT-NotInterested-OB'
                                     ) AND CNT_OB_DIALS <= 15 THEN 'Medium Priority'
-                                WHEN CLIENT_COHORT IN ('AboveLending-Retarget-OB') AND CNT_OB_DIALS >= 16
+                                WHEN CLIENT_COHORT IN
+                                     ('AboveLending-Retarget-OB', 'BRC-AboveLending-RT-NotInterested-OB') AND
+                                     CNT_OB_DIALS >= 16
                                     THEN 'Low Priority'
                                 WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
                                                        'Above Lending - Day 1',
