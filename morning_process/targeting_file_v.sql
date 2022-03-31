@@ -1,4 +1,4 @@
-CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.TARGETING_FILE_V AS
+-- CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.TARGETING_FILE_V AS
 WITH ELIG_FILE_DATA AS (
                        SELECT DISTINCT
                               LOADED_DATE
@@ -465,26 +465,18 @@ WITH ELIG_FILE_DATA AS (
                           , TRUE AS FILTER_DEPOSIT_ADHERENCE
                           , TRUE AS FILTER_PAYMENT_INCREASE
                           , iff(CREDIT_FLAGS IS NOT NULL, FALSE, TRUE) AS FILTER_CREDIT_FLAGS
---                           , CASE
---                                 WHEN CLIENT_COHORT IN ('Above Lending - Day 1', 'Above Lending - HD - Day 1') AND
---                                      HAS_CO_CLIENT THEN
---                                     IFF(ABOVE_MONTHLY_PAYMENT <= BEYOND_MONTHLY_DEPOSIT * 1.0, TRUE, FALSE)
---                                 ELSE TRUE
---                                 END AS FILTER_PAYMENT_INCREASE
---                           , iff(BEYOND_LOAN_STATUS_CORRECTED = 'Interested - Above' AND
---                                 BEYOND_LOAN_STATUS_DATE::DATE BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE, FALSE,
---                                 TRUE) AS FILTER_ABOVE_INTERESTED
+                          , iff(current_date - ENROLLED_DATE >= 180, TRUE, FALSE) AS FILTER_PROGRAM_DURATION
                           , IFF(CLIENT_COHORT <> 'None'
                                     AND COALESCE(FILTER_ABOVE_STATUS, TRUE)
                                     AND COALESCE(FILTER_BEYOND_STATUS, TRUE)
                                     AND COALESCE(FILTER_BAD_DISPOSITION, TRUE)
---                                     AND coalesce(FILTER_ABOVE_INTERESTED, TRUE)
                                     AND COALESCE(FILTER_DEPOSIT_ADHERENCE, TRUE)
                                     AND COALESCE(FILTER_LANGUAGE, TRUE)
                                     AND COALESCE(FILTER_LOAN_AMOUNT, TRUE)
                                     AND COALESCE(FILTER_NEXT_DEPOSIT_DATE, TRUE)
                                     AND COALESCE(FILTER_PAYMENT_INCREASE, TRUE)
-                                    AND COALESCE(FILTER_CREDIT_FLAGS, TRUE), TRUE, FALSE) AS IS_TARGETED
+                                    AND COALESCE(FILTER_CREDIT_FLAGS, TRUE)
+                                    AND COALESCE(FILTER_PROGRAM_DURATION, TRUE), TRUE, FALSE) AS IS_TARGETED
                           , IFF(IS_TARGETED, CLIENT_COHORT, NULL) AS DIALER_CAMPAIGN
                      FROM ALL_DATA
                      )
@@ -536,5 +528,6 @@ SELECT LOADED_DATE
      , ON_DNC_LIST
      , FILTER_CREDIT_FLAGS
      , CREDIT_FLAGS
+     , FILTER_PROGRAM_DURATION
 FROM COHORT_FLAGS;
 
