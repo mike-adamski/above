@@ -1,4 +1,4 @@
--- CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.TARGETING_FILE_V AS
+CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.TARGETING_FILE_V AS
 WITH ELIG_FILE_DATA AS (
                        SELECT DISTINCT
                               LOADED_DATE
@@ -248,6 +248,12 @@ WITH ELIG_FILE_DATA AS (
                             ELSE FALSE
                             END AS IS_SPANISH_SPEAKING
                       , CF.CREDIT_FLAGS
+                      , (
+                        SELECT count(*)
+                        FROM SNO_SANDBOX.IPL.IPL_DIALER_DATA
+                        WHERE PROGRAM_NAME = D.PROGRAM_NAME
+                          AND CAMPAIGN_TYPE = 'Outbound'
+                        ) AS CNT_OB_DIALS
                  FROM ELIG_FILE_DATA D
                       LEFT JOIN SNO_SANDBOX.IPL.LOAN_STATUS_RECONCILIATION LSR
                                 ON D.PROGRAM_NAME = LSR.PROGRAM_NAME
@@ -328,7 +334,7 @@ WITH ELIG_FILE_DATA AS (
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
                                     THEN 'AboveLending-RT-Expired-OB'
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
-                                    THEN 'None' // 'BRC-AboveLending-RT-Expired-OB'
+                                    THEN 'BRC-AboveLending-RT-Expired-OB'
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND (ABOVE_LOAN_STATUS IN
                                                                    ('FRONT_END_DECLINED', 'BACK_END_DECLINED', 'NO_OFFERS')
                                     OR BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined'))
@@ -344,7 +350,7 @@ WITH ELIG_FILE_DATA AS (
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND
                                      (BEYOND_LOAN_STATUS_CORRECTED IN ('Not Interested', 'Withdrawn') OR
                                       ABOVE_LOAN_STATUS IN ('WITHDRAWN'))
-                                    THEN 'None' // 'BRC-AboveLending-RT-NotInterested-OB'
+                                    THEN 'BRC-AboveLending-RT-NotInterested-OB'
                                 WHEN SOURCE_SYSTEM = 'BEDROCK'
                                     THEN 'BRC-Above-OB - Above Lending - Week 2'
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND LENDER IN ('Above Lending', 'CRB') AND
@@ -377,7 +383,7 @@ WITH ELIG_FILE_DATA AS (
                                     THEN FALSE
                                 WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined')
                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 90
-                                    THEN FALSE -- Holding out of the dialer until retargeting script can be implemented
+                                    THEN FALSE
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND
                                      BEDROCK_LOAN_APPLICATION_STATUS NOT IN ('Decline', 'Withdrawn', 'Expired')
                                     AND BEDROCK_LOAN_APPLICATION_STATUS IS NOT NULL
@@ -471,6 +477,32 @@ WITH ELIG_FILE_DATA AS (
                                     AND COALESCE(FILTER_CREDIT_FLAGS, TRUE)
                                     AND COALESCE(FILTER_PROGRAM_DURATION, TRUE), TRUE, FALSE) AS IS_TARGETED
                           , IFF(IS_TARGETED, CLIENT_COHORT, NULL) AS DIALER_CAMPAIGN
+                          , CASE
+                                WHEN NOT IS_TARGETED THEN NULL
+                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
+                                                       'Above Lending - Day 1',
+                                                       'BRC-Above-OB - Above Lending - Week 2')
+                                    AND CNT_OB_DIALS <= 5 THEN 'High Priority'
+                                WHEN CLIENT_COHORT IN ('AboveLending-RT-Declined-OB', 'BRC-AboveLending-RT-Declined-OB')
+                                    THEN 'High Priority'
+                                WHEN CLIENT_COHORT IN ('AboveLending-RT-Expired-OB', 'BRC-AboveLending-RT-Expired-OB')
+                                    THEN 'Medium Priority'
+                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
+                                                       'Above Lending - Day 1',
+                                                       'BRC-Above-OB - Above Lending - Week 2'
+                                    ) AND CNT_OB_DIALS BETWEEN 6 AND 15 THEN 'Medium Priority'
+                                WHEN CLIENT_COHORT IN (
+                                                       'AboveLending-Retarget-OB',
+                                                       'BRC-AboveLending-RT-NotInterested-OB'
+                                    ) AND CNT_OB_DIALS <= 15 THEN 'Medium Priority'
+                                WHEN CLIENT_COHORT IN ('AboveLending-Retarget-OB') AND CNT_OB_DIALS >= 16
+                                    THEN 'Low Priority'
+                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
+                                                       'Above Lending - Day 1',
+                                                       'BRC-Above-OB - Above Lending - Week 2') AND CNT_OB_DIALS >= 11
+                                    THEN 'Low Priority'
+                                ELSE '???'
+                                END AS DIALER_LIST
                      FROM ALL_DATA
                      )
 
@@ -522,5 +554,7 @@ SELECT LOADED_DATE
      , FILTER_CREDIT_FLAGS
      , CREDIT_FLAGS
      , FILTER_PROGRAM_DURATION
+     , CNT_OB_DIALS
+     , DIALER_LIST
 FROM COHORT_FLAGS;
 
