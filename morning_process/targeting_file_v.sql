@@ -384,12 +384,6 @@ WITH ELIG_FILE_DATA AS (
                                     THEN FALSE
                                 WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined')
                                     AND BEYOND_LOAN_STATUS_DATE > current_date - 90
-                                    AND NOT (PROGRAM_NAME IN (
-                                                             SELECT PROGRAM_NAME
-                                                             FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
-                                                             )
-                                        AND (BEYOND_LOAN_STATUS_DATE IS NULL OR
-                                             BEYOND_LOAN_STATUS_DATE < '2021-12-28'))
                                     THEN FALSE -- Holding out of the dialer until retargeting script can be implemented
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND
                                      BEDROCK_LOAN_APPLICATION_STATUS NOT IN ('Decline', 'Withdrawn', 'Expired')
@@ -397,12 +391,6 @@ WITH ELIG_FILE_DATA AS (
                                     THEN FALSE
                                 WHEN BEDROCK_LOAN_APPLICATION_STATUS IN ('Decline')
                                     AND datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) <= 90
-                                    AND NOT (PROGRAM_NAME IN (
-                                                             SELECT PROGRAM_NAME
-                                                             FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
-                                                             )
-                                        AND (BEDROCK_LOAN_APPLICATION_DATE IS NULL OR
-                                             BEDROCK_LOAN_APPLICATION_DATE < '2021-12-28'))
                                     THEN FALSE
                                 WHEN BEDROCK_LOAN_APPLICATION_STATUS IN ('Expired') AND
                                      datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) <= (28 + 45) --45 days from loan expiration
@@ -439,12 +427,6 @@ WITH ELIG_FILE_DATA AS (
                                       'OFFERED', 'PENDING', 'BASIC_INFO_COMPLETE', 'ONBOARDED') THEN FALSE
                                 WHEN ABOVE_LOAN_STATUS IN ('FRONT_END_DECLINED')
                                     AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
-                                    AND NOT (PROGRAM_NAME IN (
-                                                             SELECT PROGRAM_NAME
-                                                             FROM SNO_SANDBOX.IPL.CP_DECLINE_RETARGETS
-                                                             )
-                                        AND (ABOVE_APPLICATION_DATE IS NULL OR
-                                             ABOVE_APPLICATION_DATE < '2021-12-28'))
                                     THEN FALSE
                                 WHEN ABOVE_LOAN_STATUS IN ('BACK_END_DECLINED')
 --                                     AND ABOVE_APPLICATION_DATE >= CURRENT_DATE - 90
