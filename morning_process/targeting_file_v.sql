@@ -52,11 +52,13 @@ WITH ELIG_FILE_DATA AS (
                            FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG
                            WHERE CASE
                                      WHEN DISPOSITION IN
-                                          ('Transferred To 3rd Party', 'Transferred to Lender') AND
+                                          ('Transferred To 3rd Party', 'Transferred to Lender',
+                                           'Attempted Transfer - Transferred') AND
                                           try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 14 THEN TRUE
                                      WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
                                           try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
-                                     WHEN DISPOSITION IN ('Not Interested') AND
+                                     WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch',
+                                                          'Not Interested - Pre Pitch') AND
                                           try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
                                      ELSE FALSE
                                      END
@@ -277,11 +279,13 @@ WITH ELIG_FILE_DATA AS (
                                 FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG
                                 WHERE CASE
                                           WHEN DISPOSITION IN
-                                               ('Transferred To 3rd Party', 'Transferred to Lender') AND
+                                               ('Transferred To 3rd Party', 'Transferred to Lender',
+                                                'Attempted Transfer - Transferred') AND
                                                try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 14 THEN TRUE
                                           WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
                                                try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
-                                          WHEN DISPOSITION IN ('Not Interested') AND
+                                          WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch',
+                                                               'Not Interested - Pre Pitch') AND
                                                try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
                                           ELSE FALSE
                                           END
