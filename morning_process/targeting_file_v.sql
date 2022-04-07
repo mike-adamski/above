@@ -227,8 +227,8 @@ WITH ELIG_FILE_DATA AS (
                       --Incorporate Bedrock Program Loan attributes
                       , PLC.LOAN_APPLICATION_STATUS_C AS BEDROCK_LOAN_APPLICATION_STATUS                                        -- This + loan_application_interest_c are two BR fields that had been a single combined field (loan_interest_status_c) in Legacy; splitting them up here so they can both be used in logic
                       , PLC.LOAN_APPLICATION_DATE_C AS BEDROCK_LOAN_APPLICATION_DATE
-                      , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST,
-                                 GREATEST(F9.LAST_BAD_DISPOSITION_TS, F9PL.LAST_BAD_DISPOSITION_TS)) AS BEYOND_LOAN_STATUS_DATE -- No timestamp for loan_application_status in legacy; using the last bad dispo timestamp as a proxy
+                      , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST,BR_INTEREST.BR_INTEREST_TS,
+                                 GREATEST(F9.LAST_BAD_DISPOSITION_TS, F9PL.LAST_BAD_DISPOSITION_TS)) AS BEYOND_LOAN_STATUS_DATE
                       , R.CURRENT_STATUS AS ABOVE_LOAN_STATUS
                       , COALESCE(LSR.UPDATED_LOAN_STATUS_LEGACY, BEYOND_LOAN_STATUS) AS BEYOND_LOAN_STATUS_CORRECTED
                       , R.APP_SUBMIT_DATE AS ABOVE_APPLICATION_DATE
@@ -302,6 +302,19 @@ WITH ELIG_FILE_DATA AS (
                                                     OVER (PARTITION BY PROGRAM_ID_C ORDER BY CREATED_DATE_CST DESC, NAME DESC) =
                                             1
                                 ) PLC ON PLC.PROGRAM_ID_C = P_B.ID
+                      LEFT JOIN (
+                                SELECT NAME
+                                     , LAST_MODIFIED_DATE_CST BR_INTEREST_TS
+                                     , LOAN_APPLICATION_INTEREST_C
+                                FROM REFINED_PROD.BEDROCK.PROGRAM_LOAN_C_ARCHIVE PLA
+                                WHERE TRUE
+                                    QUALIFY LOAN_APPLICATION_INTEREST_C IS DISTINCT FROM
+                                            LAG(LOAN_APPLICATION_INTEREST_C)
+                                                OVER (PARTITION BY NAME ORDER BY LAST_MODIFIED_DATE_CST DESC)
+                                        AND rank()
+                                                    OVER (PARTITION BY NAME ORDER BY LAST_MODIFIED_DATE_CST DESC) =
+                                            1
+                                ) BR_INTEREST ON BR_INTEREST.NAME = PLC.NAME
                       LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROSPECT_C AS PR
                                 ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE AND
                                    PR.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
