@@ -213,6 +213,28 @@ WITH ELIG_FILE_DATA AS (
                      WHERE P.MONTHS_SINCE_ENROLLMENT BETWEEN 3 AND 5
                      GROUP BY 1
                      )
+   , TRADES_MISSING_FEES_PAYMENTS AS (
+                                     SELECT DISTINCT
+                                            T.TRADELINE_NAME
+                                          , T.PROGRAM_NAME
+                                     FROM CURATED_PROD.CRM.TRADELINE AS T
+                                          LEFT JOIN CURATED_PROD.CFT.ACTUAL_TRANSACTION AS CP
+                                                    ON T.OFFER_ID = CP.OFFER_ID AND CP.IS_CURRENT_RECORD_FLAG = TRUE AND
+                                                       CP.TRANSACTION_STATUS IN ('Scheduled') AND
+                                                       CP.TRANSACTION_TYPE IN ('Payment')
+                                          LEFT JOIN CURATED_PROD.CFT.ACTUAL_TRANSACTION AS BF
+                                                    ON T.OFFER_ID = BF.OFFER_ID AND BF.IS_CURRENT_RECORD_FLAG = TRUE AND
+                                                       BF.TRANSACTION_STATUS IN ('Scheduled') AND
+                                                       BF.TRANSACTION_TYPE IN ('Settlement Fee')
+                                          LEFT JOIN CURATED_PROD.CRM.OFFER AS O
+                                                    ON T.OFFER_ID = O.OFFER_ID AND O.IS_CURRENT_RECORD_FLAG = TRUE
+                                     WHERE 1 = 1
+                                       AND T.TRADELINE_SETTLEMENT_SUB_STATUS IN ('APPROVED')
+                                       AND T.IS_CURRENT_RECORD_FLAG = TRUE
+                                       AND O.OFFER_STATUS IN ('Approved')
+                                       AND (T.FEES_COLLECTED_AMOUNT = 0 OR T.FEES_COLLECTED_AMOUNT IS NULL)
+                                       AND (T.FEES_OUTSTANDING_AMOUNT = 0 OR T.FEES_OUTSTANDING_AMOUNT IS NULL)
+                                     )
    , ALL_DATA AS (
                  SELECT D.*
                       , ND.NEXT_DEPOSIT_DATE_PROCESSED
@@ -225,9 +247,9 @@ WITH ELIG_FILE_DATA AS (
                             END AS PROGRAM_AGE_GROUP
                       , coalesce(P_L.LOAN_INTEREST_STATUS_C, PLC.LOAN_APPLICATION_INTEREST_C) AS BEYOND_LOAN_STATUS
                       --Incorporate Bedrock Program Loan attributes
-                      , PLC.LOAN_APPLICATION_STATUS_C AS BEDROCK_LOAN_APPLICATION_STATUS                                        -- This + loan_application_interest_c are two BR fields that had been a single combined field (loan_interest_status_c) in Legacy; splitting them up here so they can both be used in logic
+                      , PLC.LOAN_APPLICATION_STATUS_C AS BEDROCK_LOAN_APPLICATION_STATUS -- This + loan_application_interest_c are two BR fields that had been a single combined field (loan_interest_status_c) in Legacy; splitting them up here so they can both be used in logic
                       , PLC.LOAN_APPLICATION_DATE_C AS BEDROCK_LOAN_APPLICATION_DATE
-                      , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST,BR_INTEREST.BR_INTEREST_TS,
+                      , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST, BR_INTEREST.BR_INTEREST_TS,
                                  GREATEST(F9.LAST_BAD_DISPOSITION_TS, F9PL.LAST_BAD_DISPOSITION_TS)) AS BEYOND_LOAN_STATUS_DATE
                       , R.CURRENT_STATUS AS ABOVE_LOAN_STATUS
                       , COALESCE(LSR.UPDATED_LOAN_STATUS_LEGACY, BEYOND_LOAN_STATUS) AS BEYOND_LOAN_STATUS_CORRECTED
@@ -304,7 +326,7 @@ WITH ELIG_FILE_DATA AS (
                                 ) PLC ON PLC.PROGRAM_ID_C = P_B.ID
                       LEFT JOIN (
                                 SELECT NAME
-                                     , LAST_MODIFIED_DATE_CST BR_INTEREST_TS
+                                     , LAST_MODIFIED_DATE_CST AS BR_INTEREST_TS
                                      , LOAN_APPLICATION_INTEREST_C
                                 FROM REFINED_PROD.BEDROCK.PROGRAM_LOAN_C_ARCHIVE PLA
                                 WHERE TRUE
@@ -347,7 +369,11 @@ WITH ELIG_FILE_DATA AS (
                                       'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA') THEN 'CRB'
                                 END AS LENDER
                           , CASE
-                                WHEN LENDER IS NULL OR datediff('month', ENROLLED_DATE, current_date) < 6 THEN 'None'
+                                WHEN LENDER IS NULL OR datediff('month', ENROLLED_DATE, current_date) < 6 OR
+                                     PROGRAM_NAME IN (
+                                                     SELECT PROGRAM_NAME
+                                                     FROM TRADES_MISSING_FEES_PAYMENTS
+                                                     ) THEN 'None'
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
                                     THEN 'AboveLending-RT-Expired-OB'
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
