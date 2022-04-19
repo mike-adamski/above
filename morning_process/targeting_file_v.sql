@@ -366,7 +366,8 @@ WITH ELIG_FILE_DATA AS (
                                 WHEN STATE IN ('CA') THEN 'Above Lending'
                                 WHEN STATE IN
                                      ('TX', 'NC', 'IN', 'MO', 'AL', 'NM', 'TN', 'MS', 'MT', 'KY', 'FL', 'MI', 'AK',
-                                      'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA') THEN 'CRB'
+                                      'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD')
+                                    THEN 'CRB'
                                 END AS LENDER
                           , CASE
                                 WHEN LENDER IS NULL OR datediff('month', ENROLLED_DATE, current_date) < 6 OR

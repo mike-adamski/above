@@ -1214,7 +1214,7 @@ SELECT DISTINCT
            END AS RULE_PROGRAM_DURATION
      , IFF(STATE IN
            ('CA', 'MI', 'TX', 'IN', 'NC', 'MO', 'AL', 'NM', 'TN', 'MS', 'MT', 'KY', 'FL', 'AK', 'SD', 'DC', 'OK', 'WI',
-            'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA'), TRUE, FALSE) AS RULE_STATE
+            'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD'), TRUE, FALSE) AS RULE_STATE
      , IFF((LAST_NSF_DT IS NULL OR
             LAST_NSF_DT < dateadd(MONTH, -3, CAST(CURRENT_DATE - 1 AS DATE))), TRUE, FALSE) AS RULE_RECENT_NSF
      , IFF(CO_CLIENT, TRUE, TRUE) AS RULE_CO_CLIENT
