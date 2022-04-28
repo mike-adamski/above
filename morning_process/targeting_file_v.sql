@@ -365,12 +365,7 @@ WITH ELIG_FILE_DATA AS (
                                        FROM SNO_SANDBOX.IPL.IPL_DNC
                                        WHERE PROGRAM_NAME = ALL_DATA.PROGRAM_NAME), TRUE,
                                 FALSE) AS ON_DNC_LIST
-                          , (
-                            SELECT max(LOADED_TIMESTAMP::DATE + DURATION_DAYS) AS EXP_DATE
-                            FROM SNO_SANDBOX.IPL.IPL_REACTIVATION
-                            WHERE PROGRAM_NAME = ALL_DATA.PROGRAM_NAME
-                            HAVING EXP_DATE >= current_date
-                            ) AS ON_REACTIVATION_LIST_THRU
+                          , NULL AS ON_REACTIVATION_LIST_THRU
                           , CASE
                                 WHEN STATE IN ('CA') THEN 'Above Lending'
                                 WHEN STATE IN
@@ -421,8 +416,7 @@ WITH ELIG_FILE_DATA AS (
                                     THEN TRUE
                                 ELSE FALSE
                                 END AS IS_OFF_COURSE
-                          , IFF(LAST_BAD_DISPOSITION IS NOT NULL AND ON_REACTIVATION_LIST_THRU IS NULL, FALSE,
-                                TRUE) AS FILTER_BAD_DISPOSITION
+                          , IFF(LAST_BAD_DISPOSITION IS NOT NULL, FALSE, TRUE) AS FILTER_BAD_DISPOSITION
                           , CASE
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND BEYOND_LOAN_STATUS_CORRECTED NOT IN
                                                                   ('Withdrawn', 'UW Declined', 'Unable to Contact',
