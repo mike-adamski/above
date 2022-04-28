@@ -1,7 +1,7 @@
 CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.TARGETING_FILE_V AS
 WITH ELIG_FILE_DATA AS (
                        SELECT DISTINCT
-                              LOADED_DATE
+                              E.CALENDAR_DATE_CST AS LOADED_DATE
                             , E.PROGRAM_ID AS PROGRAM_NAME
                             , E.CLIENT_ID AS PROGRAM_ID
                             , BEYOND_ENROLLMENT_DATE AS ENROLLED_DATE
@@ -13,13 +13,13 @@ WITH ELIG_FILE_DATA AS (
                             , ((AMOUNT_FINANCED / .95) / (((POWER(1 + (0.229 / 12), 72) - 1)) /
                                                           ((0.229 / 12) * (POWER(1 + (0.229 / 12), 72))))) AS ABOVE_MONTHLY_PAYMENT
                             , DRAFT_AMOUNT * CASE
-                                                 WHEN NU_DSE_PAYMENT_FREQUENCY_C = 'Monthly' THEN 1
-                                                 WHEN NU_DSE_PAYMENT_FREQUENCY_C IN ('Semi-Monthly', 'Twice Monthly')
+                                                 WHEN E.PAYMENT_FREQUENCY = 'Monthly' THEN 1
+                                                 WHEN E.PAYMENT_FREQUENCY IN ('Semi-Monthly', 'Twice Monthly')
                                                      THEN 2
-                                                 WHEN NU_DSE_PAYMENT_FREQUENCY_C = 'Bi-Weekly' THEN 26 / 12
+                                                 WHEN E.PAYMENT_FREQUENCY = 'Bi-Weekly' THEN 26 / 12
                                                  ELSE -1 -- If payment frequency not in this list, make field negative for visibility
                                                  END AS BEYOND_MONTHLY_DEPOSIT
-                            , NU_DSE_PAYMENT_FREQUENCY_C AS DEPOSIT_FREQUENCY
+                            , E.PAYMENT_FREQUENCY AS DEPOSIT_FREQUENCY
                             , IFF(NEXT_PAYMENT_DATE < CURRENT_DATE, AD.ALT_DEPOSIT_DATE,
                                   NEXT_PAYMENT_DATE) AS NEXT_DEPOSIT_DATE_SCHEDULED
                             , PAYMENT_ADHERENCE_RATIO_3_MONTHS AS DEPOSIT_ADHERENCE_3M
@@ -27,7 +27,7 @@ WITH ELIG_FILE_DATA AS (
                             , BF_REMAINING_DEPOSITS
                             , HISTORICAL_SETTLEMENT_PERCENT
                             , P.SERVICE_ENTITY_NAME
-                       FROM SNO_SANDBOX.IPL.IPL_ELIGIBLE E
+                       FROM CURATED_PROD.SUMMARY.IPL_ELIGIBILITY_DAILY_SUMMARY E
                             LEFT JOIN CURATED_PROD.CRM.PROGRAM P
                                       ON E.PROGRAM_ID = P.PROGRAM_NAME AND P.IS_CURRENT_RECORD_FLAG
                             LEFT JOIN (
@@ -237,7 +237,7 @@ WITH ELIG_FILE_DATA AS (
                                      )
    , ALL_DATA AS (
                  SELECT D.*
-                      , ND.NEXT_DEPOSIT_DATE_PROCESSED
+                      , NULL AS NEXT_DEPOSIT_DATE_PROCESSED
                       , CASE
                             WHEN ENROLLED_DATE > CURRENT_DATE - INTERVAL '3 months' THEN 'Too new'
                             WHEN ENROLLED_DATE > CURRENT_DATE - INTERVAL '6 months' THEN 'T3-T6'
@@ -252,7 +252,26 @@ WITH ELIG_FILE_DATA AS (
                       , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST, BR_INTEREST.BR_INTEREST_TS,
                                  GREATEST(F9.LAST_BAD_DISPOSITION_TS, F9PL.LAST_BAD_DISPOSITION_TS)) AS BEYOND_LOAN_STATUS_DATE
                       , R.CURRENT_STATUS AS ABOVE_LOAN_STATUS
-                      , COALESCE(LSR.UPDATED_LOAN_STATUS_LEGACY, BEYOND_LOAN_STATUS) AS BEYOND_LOAN_STATUS_CORRECTED
+                      -- Reconcile statuses in Beyond Salesforce with those coming from Above
+                      , CASE
+                            WHEN SOURCE_SYSTEM = 'BEDROCK' THEN BEYOND_LOAN_STATUS
+                            WHEN BEYOND_LOAN_STATUS IN ('Funded', 'Graduated', 'Not Interested')
+                                THEN BEYOND_LOAN_STATUS
+                            WHEN ABOVE_LOAN_STATUS IN ('FRONT_END_DECLINED', 'BACK_END_DECLINED')
+                                THEN 'UW Declined'
+                            WHEN BEYOND_LOAN_STATUS = 'Interested - Skybridge'
+                                THEN 'Above - Loan In progress'
+                            WHEN ABOVE_LOAN_STATUS IN ('EXPIRED') THEN NULL
+                            WHEN ABOVE_LOAN_STATUS IN ('WITHDRAWN') THEN NULL
+                            WHEN ABOVE_LOAN_STATUS IN
+                                 ('BASIC_INFO_COMPLETE', 'ADD_INFO_COMPLETE', 'OFFERED', 'OFFERED_SELECTED',
+                                  'PENDING', 'APPROVED',
+                                  'INITIAL_TIL_SUBMIT') THEN 'Above - Loan In progress'
+                            WHEN ABOVE_LOAN_STATUS IN ('ONBOARDED') AND
+                                 BEYOND_LOAN_STATUS NOT IN ('Funded', 'Graduated')
+                                THEN 'Above - Loan In progress'
+                            ELSE BEYOND_LOAN_STATUS
+                            END AS BEYOND_LOAN_STATUS_CORRECTED
                       , R.APP_SUBMIT_DATE AS ABOVE_APPLICATION_DATE
                       , CASE
                             WHEN F9PL.LAST_BAD_DISPOSITION IS NULL THEN F9.LAST_BAD_DISPOSITION
@@ -279,18 +298,15 @@ WITH ELIG_FILE_DATA AS (
                           AND CAMPAIGN_TYPE = 'Outbound'
                         ) AS CNT_OB_DIALS
                  FROM ELIG_FILE_DATA D
-                      LEFT JOIN SNO_SANDBOX.IPL.LOAN_STATUS_RECONCILIATION LSR
-                                ON D.PROGRAM_NAME = LSR.PROGRAM_NAME
-                                    AND LSR.LOADED_DATE = CURRENT_DATE
-                                    AND LSR.SOURCE_SYSTEM = 'LEGACY'
                       LEFT JOIN (
                                 SELECT *
-                                FROM SNO_SANDBOX.IPL.IPL_RETURN_FILE
+                                FROM REFINED_PROD.ABOVE_LENDING.AGL_COMBINED_DETAIL
                                     QUALIFY rank()
-                                                    OVER (PARTITION BY PROGRAM_ID
-                                                        ORDER BY LOADED_DATE DESC, coalesce(APP_SUBMIT_DATE, '1901-01-01') DESC, LAST_UPDATED_T DESC, DECLINE_REASON_1 DESC) =
+                                                    OVER (PARTITION BY PROGRAM_NAME
+                                                        ORDER BY coalesce(APP_SUBMIT_DATE, '1901-01-01') DESC, LAST_UPDATE_DATE_CST DESC
+                                                            , DECLINE_REASON_TEXT DESC) =
                                             1
-                                ) R ON D.PROGRAM_NAME = R.PROGRAM_ID AND D.LOADED_DATE = R.LOADED_DATE
+                                ) R ON D.PROGRAM_NAME = R.PROGRAM_NAME
                       LEFT JOIN (
                                 SELECT DISTINCT
                                        SALESFORCE_ID
@@ -341,13 +357,6 @@ WITH ELIG_FILE_DATA AS (
                                 ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE AND
                                    PR.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                       LEFT JOIN CREDIT_FLAGS CF ON D.PROGRAM_NAME = CF.PROGRAM_NAME
-                    , LATERAL (
-                     SELECT min(C.CALENDAR_DATE_CST) AS NEXT_DEPOSIT_DATE_PROCESSED
-                     FROM SNO_SANDBOX.IPL.CALENDAR C
-                     WHERE C.CALENDAR_DATE_CST >= D.NEXT_DEPOSIT_DATE_SCHEDULED
-                       AND C.DAY_NAME NOT IN ('SATURDAY', 'SUNDAY')
-                       AND NOT C.IS_HOLIDAY
-                     ) AS ND -- When deposit scheduled on a weekend/holiday, find the next business day that it will process on
                  )
 
    , COHORT_FLAGS AS (
