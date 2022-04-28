@@ -449,9 +449,7 @@ WITH ELIG_FILE_DATA AS (
                                     THEN FALSE
                                 WHEN BEDROCK_LOAN_APPLICATION_STATUS IN ('Withdrawn') AND
                                      datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) < 45 THEN FALSE
-                                WHEN exists(SELECT 1
-                                            FROM SNO_SANDBOX.IPL.IPL_DNC
-                                            WHERE PROGRAM_NAME = ALL_DATA.PROGRAM_NAME) THEN FALSE
+                                WHEN ON_DNC_LIST THEN FALSE
                                 WHEN PROGRAM_NAME IN ('P-113287',
                                                       'P-113427',
                                                       'P-113411',
