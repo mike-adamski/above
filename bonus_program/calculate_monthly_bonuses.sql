@@ -1,5 +1,6 @@
 USE ROLE ABOVE_STR_OPS_ROLE;
-SET BONUS_MONTH = '2022-03-01'::date// date_trunc('month', current_date - extract(DAY FROM current_date));
+-- SET BONUS_MONTH = '2022-03-01'::date;
+SET BONUS_MONTH = date_trunc('month', current_date - extract(DAY FROM current_date));
 
 -- Determine which agents are eligible based on working 80+ hours in the month
 DELETE
@@ -197,25 +198,16 @@ WITH DECISIONS AS (
                        , MAX(DECISIONED_FLG) AS DECISIONED
                   FROM ABOVE_STR_OPS.VERIF_FUNNEL F
                   GROUP BY 1, 2
-                  HAVING DECISIONED = 1
                   )
 SELECT MONTH
-     , E.NAME AS AGENT_NAME
+     , coalesce(SB.agent, E.NAME) AS AGENT_NAME
      , E.POSITION
      , E.MANAGER_NAME
      , D.UNIFIED_ID
      , APPLICATION_DATE
-     , DECISION_DATE
-     , (
-       SELECT count(*)
-       FROM ABOVE_STR_OPS.VERIF_SENDBACKS
-       WHERE UNIFIED_ID = D.UNIFIED_ID
-       ) AS SENDBACKS
-     , (
-       SELECT min(DECISION_DATE)
-       FROM ABOVE_STR_OPS.VERIF_SENDBACKS
-       WHERE UNIFIED_ID = D.UNIFIED_ID
-       ) AS SENDBACK_DATE
+     , coalesce(SB.SENDBACK_DATE, D.DECISION_DATE) AS DEC_DATE
+     , COALESCE(SB.NUM_SENDBACKS, 0) AS SENDBACKS
+     , SB.SENDBACK_DATE
      , current_timestamp::TIMESTAMP_NTZ AS RUN_TIMESTAMP
 FROM DECISIONS D
      JOIN (
@@ -224,10 +216,23 @@ FROM DECISIONS D
               QUALIFY rank() OVER (PARTITION BY UNIFIED_ID ORDER BY LOADED_DATE DESC) = 1
           ) A
           ON D.UNIFIED_ID = A.UNIFIED_ID
+     LEFT JOIN (
+               SELECT UNIFIED_ID
+                    , AGENT
+                    , count(*) AS NUM_SENDBACKS
+                    , min(DECISION_DATE) AS SENDBACK_DATE
+               FROM ABOVE_STR_OPS.VERIF_SENDBACKS
+               WHERE LOADED_DATE = (
+                                   SELECT max(LOADED_DATE)
+                                   FROM ABOVE_STR_OPS.VERIF_SENDBACKS
+                                   )
+               GROUP BY 1,2
+               ) SB ON SB.UNIFIED_ID = D.UNIFIED_ID
      JOIN ABOVE_STR_OPS.BP_ELIGIBLE E
-          ON LOWER(A.AGENT_NAME) = LOWER(E.NAME) AND date_trunc('month', D.DECISION_DATE)::DATE = E.MONTH
+          ON LOWER(A.AGENT_NAME) = LOWER(E.NAME) AND
+             date_trunc('month', coalesce(SB.SENDBACK_DATE, D.DECISION_DATE))::DATE = E.MONTH
 WHERE A.AGENT_NAME IS NOT NULL
-  AND date_trunc('month', D.DECISION_DATE)::DATE = $BONUS_MONTH
+  AND date_trunc('month', DEC_DATE)::DATE = $BONUS_MONTH
   AND E.POSITION IN ('Verification')
 ;
 
@@ -570,5 +575,18 @@ SELECT *
 FROM ABOVE_STR_OPS.BP_TL_SENDBACK_RATE
 ORDER BY 1, 2, 3;
 
+SELECT *
+FROM ABOVE_STR_OPS.BP_SENDBACK_RATE
+WHERE MONTH = '2022-04-01'
 
-select * from ABOVE_STR_OPS.VERIF_SENDBACKS where UNIFIED_ID = 46826347
+SELECT *
+FROM ABOVE_STR_OPS.BP_SENDBACK_RATE
+WHERE UNIFIED_ID = 30717197
+
+SELECT *
+FROM ABOVE_STR_OPS.VERIF_SENDBACKS
+WHERE LOADED_DATE = current_date AND date_trunc('month', DECISION_DATE)::DATE = '2022-04-01'
+
+SELECT *
+FROM ABOVE_STR_OPS.VERIF_FUNNEL
+WHERE UNIFIED_ID = 30717197
