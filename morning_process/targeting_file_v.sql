@@ -509,7 +509,7 @@ WITH ELIG_FILE_DATA AS (
                           , TRUE AS FILTER_DEPOSIT_ADHERENCE
                           , TRUE AS FILTER_PAYMENT_INCREASE
                           , iff(CREDIT_FLAGS IS NOT NULL, FALSE, TRUE) AS FILTER_CREDIT_FLAGS
-                          , iff(current_date - ENROLLED_DATE >= 180, TRUE, FALSE) AS FILTER_PROGRAM_DURATION
+                          , iff(current_date - date_trunc('week',ENROLLED_DATE)::date >= 180, TRUE, FALSE) AS FILTER_PROGRAM_DURATION
                           , IFF(CLIENT_COHORT <> 'None'
                                     AND COALESCE(FILTER_ABOVE_STATUS, TRUE)
                                     AND COALESCE(FILTER_BEYOND_STATUS, TRUE)
