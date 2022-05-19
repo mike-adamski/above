@@ -297,6 +297,7 @@ WITH ELIG_FILE_DATA AS (
                         WHERE PROGRAM_NAME = D.PROGRAM_NAME
                           AND CAMPAIGN_TYPE = 'Outbound'
                         ) AS CNT_OB_DIALS
+                      , coalesce(P_B.IS_REMOVED_FROM_IPL_MARKETING_FLAG_C, FALSE) AS ON_DNC_LIST
                  FROM ELIG_FILE_DATA D
                       LEFT JOIN (
                                 SELECT *
@@ -361,10 +362,6 @@ WITH ELIG_FILE_DATA AS (
 
    , COHORT_FLAGS AS (
                      SELECT *
-                          , iff(exists(SELECT 1
-                                       FROM SNO_SANDBOX.IPL.IPL_DNC
-                                       WHERE PROGRAM_NAME = ALL_DATA.PROGRAM_NAME), TRUE,
-                                FALSE) AS ON_DNC_LIST
                           , NULL AS ON_REACTIVATION_LIST_THRU
                           , CASE
                                 WHEN STATE IN ('CA') THEN 'Above Lending'
@@ -509,7 +506,8 @@ WITH ELIG_FILE_DATA AS (
                           , TRUE AS FILTER_DEPOSIT_ADHERENCE
                           , TRUE AS FILTER_PAYMENT_INCREASE
                           , iff(CREDIT_FLAGS IS NOT NULL, FALSE, TRUE) AS FILTER_CREDIT_FLAGS
-                          , iff(current_date - date_trunc('week',ENROLLED_DATE)::date >= 180, TRUE, FALSE) AS FILTER_PROGRAM_DURATION
+                          , iff(current_date - date_trunc('week', ENROLLED_DATE)::DATE >= 180, TRUE,
+                                FALSE) AS FILTER_PROGRAM_DURATION
                           , IFF(CLIENT_COHORT <> 'None'
                                     AND COALESCE(FILTER_ABOVE_STATUS, TRUE)
                                     AND COALESCE(FILTER_BEYOND_STATUS, TRUE)
