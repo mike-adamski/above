@@ -235,6 +235,25 @@ WITH ELIG_FILE_DATA AS (
                                        AND (T.FEES_COLLECTED_AMOUNT = 0 OR T.FEES_COLLECTED_AMOUNT IS NULL)
                                        AND (T.FEES_OUTSTANDING_AMOUNT = 0 OR T.FEES_OUTSTANDING_AMOUNT IS NULL)
                                      )
+   , OB_DIALS AS (
+                 SELECT PROGRAM_NAME, count(*) AS CNT_OB_DIALS
+                 FROM (
+                      SELECT CALL.CALL_ID
+                           , PROGRAM.PROGRAM_NAME
+                      FROM CURATED_PROD.CALL.CALL CALL
+                           LEFT JOIN CURATED_PROD.CALL.AGENT_SEGMENT AGENT_SEGMENT
+                                     ON AGENT_SEGMENT.CALL_ID = CALL.CALL_ID
+                           LEFT JOIN CURATED_PROD.CALL.AGENT AGENT
+                                     ON AGENT.AGENT_KEY = AGENT_SEGMENT.AGENT_KEY AND
+                                        AGENT.IS_CURRENT_RECORD_FLAG = TRUE
+                           LEFT JOIN CURATED_PROD.CRM.PROGRAM PROGRAM ON PROGRAM.PROGRAM_ID = CALL.PROGRAM_ID
+                      WHERE CALL.CALL_CAMPAIGN ILIKE '%above%'
+                        AND CALL.CALL_CAMPAIGN NOT ILIKE '%sales%'
+                        AND CALL.CALL_CAMPAIGN_TYPE = 'Outbound'
+                          QUALIFY row_number() OVER (PARTITION BY CALL.CALL_ID ORDER BY CALL.START_DATE_TIME_CST) = 1
+                      )
+                 GROUP BY 1
+                 )
    , ALL_DATA AS (
                  SELECT D.*
                       , NULL AS NEXT_DEPOSIT_DATE_PROCESSED
@@ -291,12 +310,7 @@ WITH ELIG_FILE_DATA AS (
                             ELSE FALSE
                             END AS IS_SPANISH_SPEAKING
                       , CF.CREDIT_FLAGS
-                      , (
-                        SELECT count(*)
-                        FROM SNO_SANDBOX.IPL.IPL_DIALER_DATA
-                        WHERE PROGRAM_NAME = D.PROGRAM_NAME
-                          AND CAMPAIGN_TYPE = 'Outbound'
-                        ) AS CNT_OB_DIALS
+                      , coalesce(CNT_OB_DIALS, 0) AS CNT_OB_DIALS
                       , coalesce(P_B.IS_REMOVED_FROM_IPL_MARKETING_FLAG_C, FALSE) AS ON_DNC_LIST
                  FROM ELIG_FILE_DATA D
                       LEFT JOIN (
@@ -358,6 +372,7 @@ WITH ELIG_FILE_DATA AS (
                                 ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE AND
                                    PR.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                       LEFT JOIN CREDIT_FLAGS CF ON D.PROGRAM_NAME = CF.PROGRAM_NAME
+                      LEFT JOIN OB_DIALS OBD ON D.PROGRAM_NAME = OBD.PROGRAM_NAME
                  )
 
    , COHORT_FLAGS AS (
@@ -602,4 +617,3 @@ SELECT LOADED_DATE
      , CNT_OB_DIALS
      , DIALER_LIST
 FROM COHORT_FLAGS;
-
