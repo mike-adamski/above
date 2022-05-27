@@ -60,6 +60,10 @@ WITH ELIG_FILE_DATA AS (
                                      WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch',
                                                           'Not Interested - Pre Pitch') AND
                                           try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
+                                     WHEN DISPOSITION IN ('Attempted Transfer - Call Back Scheduled',
+                                                          'Client Not Available - Post Pitch - Call Back Scheduled',
+                                                          'Client Not Available - Pre Pitch - Call Back Scheduled')
+                                         AND try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 7 THEN TRUE
                                      ELSE FALSE
                                      END
                            )
