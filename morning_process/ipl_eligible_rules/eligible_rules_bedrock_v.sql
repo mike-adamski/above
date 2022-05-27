@@ -142,9 +142,22 @@ WITH LAST_NSF AS (
                      , coalesce(TL.COLLECTION_AGENCY_PARENT_NAME, TL.COLLECTION_AGENCY_NAME, C_CURR.CREDITOR_NAME,
                                 CA_CURR.CREDITOR_ALIAS_NAME, C_ORIG.CREDITOR_NAME,
                                 CA_ORIG.CREDITOR_ALIAS_NAME) AS CURRENT_CREDITOR
+                     , cast(LLTB.AMOUNT_C AS DECIMAL(18, 2)) AS LATEST_TL_BALANCE_AMOUNT
                      , CASE
-                           WHEN TL.NEGOTIATION_BALANCE = 0 THEN NULL
-                           ELSE cast(TL.NEGOTIATION_BALANCE AS DECIMAL(18, 2))
+                           WHEN TL.ORIGINAL_SOURCE_SYSTEM IN ('LEGACY') THEN CASE
+                                                                                 WHEN TL.NEGOTIATION_BALANCE = 0
+                                                                                     THEN NULL
+                                                                                 ELSE cast(TL.NEGOTIATION_BALANCE AS DECIMAL(18, 2))
+                                                                                 END
+                           WHEN TL.NEGOTIATION_BALANCE IS NULL AND LATEST_TL_BALANCE_AMOUNT > TL.ENROLLED_BALANCE
+                               THEN LATEST_TL_BALANCE_AMOUNT
+                           WHEN TL.NEGOTIATION_BALANCE > 0 AND
+                                nvl(TL.NEGOTIATION_BALANCE, 0) <= nvl(LATEST_TL_BALANCE_AMOUNT, 0)
+                               THEN LATEST_TL_BALANCE_AMOUNT
+                           WHEN TL.NEGOTIATION_BALANCE > 0 AND
+                                nvl(TL.NEGOTIATION_BALANCE, 0) >= nvl(LATEST_TL_BALANCE_AMOUNT, 0)
+                               THEN cast(TL.NEGOTIATION_BALANCE AS DECIMAL(18, 2))
+                           ELSE NULL
                            END AS NEGOTIATION_BALANCE
                      , cast(TL.ENROLLED_BALANCE AS DECIMAL(18, 2)) AS ORIGINAL_BALANCE
                      , SSP.AMT AS CREDITOR_PAYMENTS_OUTSTANDING_AMOUNT
@@ -177,6 +190,21 @@ WITH LAST_NSF AS (
                                    AND CA_CURR.IS_CURRENT_RECORD_FLAG
                      LEFT JOIN CURATED_PROD.CRM.PROGRAM P
                                ON P.PROGRAM_ID = TL.PROGRAM_ID AND P.IS_CURRENT_RECORD_FLAG = TRUE
+                     LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_TRADELINE_C AS TLR
+                               ON TL.TRADELINE_ID = TLR.ID AND TLR.IS_DELETED = FALSE
+                     LEFT JOIN (
+                               SELECT ID
+                                    , PROGRAM_TRADELINE_ID_C
+                                    , AMOUNT_C
+                                    , coalesce(BALANCE_AS_OF_DATE_TIME_C_CST, CREATED_DATE_CST) AS EFF_DATE
+                                    , row_number()
+                                       OVER (PARTITION BY PROGRAM_TRADELINE_ID_C ORDER BY EFF_DATE DESC ,AMOUNT_C DESC) AS RN
+                               FROM REFINED_PROD.BEDROCK.TRADELINE_BALANCE_C
+                               WHERE AMOUNT_C IS NOT NULL
+                                   QUALIFY RN = 1
+                               ) AS LTB ON LTB.PROGRAM_TRADELINE_ID_C = TLR.ID
+                     LEFT JOIN REFINED_PROD.BEDROCK.TRADELINE_BALANCE_C AS LLTB
+                               ON LLTB.ID = TLR.LATEST_TRADELINE_BALANCE_ID_C
                      LEFT JOIN SETTLEMENT_SCHEDULE SSP
                                ON OFFER.OFFER_ID = SSP.OFFER_ID AND SSP.TRANSACTION_STATUS = 'Scheduled' AND
                                   SSP.TRANSACTION_TYPE = 'Payment'
@@ -1070,7 +1098,11 @@ WITH LAST_NSF AS (
                                          SELECT PROGRAM_NAME
                                               , TRADELINE_NAME
                                               , CREDITOR_NAME
-                                              , ((EST_OFFER_PERCENT + 3) / 100) AS OFFER_PERCENT --Adding 3% buffer
+                                              --add case when to limit settlement rate to 100% max
+                                              , CASE
+                                                    WHEN ((EST_OFFER_PERCENT + 3) / 100) > 1 THEN 1
+                                                    ELSE ((EST_OFFER_PERCENT + 3) / 100)
+                                                    END AS OFFER_PERCENT --adding 3% buffer
                                          FROM TRADELINES_W_EST_OFFER
                                          WHERE EST_OFFER_PERCENT IS NOT NULL
                                          )

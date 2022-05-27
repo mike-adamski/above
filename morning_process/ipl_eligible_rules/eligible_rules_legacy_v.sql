@@ -975,7 +975,11 @@ WITH LAST_NSF AS (
                                          SELECT PROGRAM_NAME
                                               , TRADELINE_NAME
                                               , CREDITOR_NAME
-                                              , ((EST_OFFER_PERCENT + 3) / 100) AS OFFER_PERCENT --adding 3% buffer
+                                              --add case when to limit settlement rate to 100% max
+                                              , CASE
+                                                    WHEN ((EST_OFFER_PERCENT + 3) / 100) > 1 THEN 1
+                                                    ELSE ((EST_OFFER_PERCENT + 3) / 100)
+                                                    END AS OFFER_PERCENT --adding 3% buffer
                                          FROM TRADELINES_W_EST_OFFER
                                          WHERE EST_OFFER_PERCENT IS NOT NULL
                                          )
