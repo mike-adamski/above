@@ -390,38 +390,25 @@ WITH ELIG_FILE_DATA AS (
                                     THEN 'CRB'
                                 END AS LENDER
                           , CASE
-                                WHEN LENDER IS NULL OR datediff('month', ENROLLED_DATE, current_date) < 6 OR
-                                     PROGRAM_NAME IN (
-                                                     SELECT PROGRAM_NAME
-                                                     FROM TRADES_MISSING_FEES_PAYMENTS
-                                                     ) THEN 'None'
-                                WHEN SOURCE_SYSTEM = 'LEGACY' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
-                                    THEN 'AboveLending-RT-Expired-OB'
-                                WHEN SOURCE_SYSTEM = 'BEDROCK' AND ABOVE_LOAN_STATUS IN ('EXPIRED')
-                                    THEN 'BRC-AboveLending-RT-Expired-OB'
-                                WHEN SOURCE_SYSTEM = 'LEGACY' AND (ABOVE_LOAN_STATUS IN
-                                                                   ('FRONT_END_DECLINED', 'BACK_END_DECLINED', 'NO_OFFERS')
-                                    OR BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined'))
-                                    THEN 'AboveLending-RT-Declined-OB'
-                                WHEN SOURCE_SYSTEM = 'BEDROCK' AND (ABOVE_LOAN_STATUS IN
-                                                                    ('FRONT_END_DECLINED', 'BACK_END_DECLINED', 'NO_OFFERS')
-                                    OR BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined'))
-                                    THEN 'BRC-AboveLending-RT-Declined-OB'
-                                WHEN SOURCE_SYSTEM = 'LEGACY' AND
-                                     (BEYOND_LOAN_STATUS_CORRECTED IN ('Not Interested', 'Withdrawn') OR
-                                      ABOVE_LOAN_STATUS IN ('WITHDRAWN'))
-                                    THEN 'AboveLending-Retarget-OB'
-                                WHEN SOURCE_SYSTEM = 'BEDROCK' AND
-                                     (BEYOND_LOAN_STATUS_CORRECTED IN ('Not Interested', 'Withdrawn') OR
-                                      ABOVE_LOAN_STATUS IN ('WITHDRAWN'))
-                                    THEN 'BRC-AboveLending-RT-NotInterested-OB'
+                                WHEN LENDER IS NULL OR PROGRAM_NAME IN (
+                                                                       SELECT PROGRAM_NAME
+                                                                       FROM TRADES_MISSING_FEES_PAYMENTS
+                                                                       ) THEN 'None'
+                                WHEN ABOVE_LOAN_STATUS IN ('EXPIRED')
+                                    THEN 'Expired App Retarget'
+                                WHEN ABOVE_LOAN_STATUS IN ('FRONT_END_DECLINED', 'BACK_END_DECLINED', 'NO_OFFERS')
+                                    OR BEYOND_LOAN_STATUS_CORRECTED IN ('UW Declined')
+                                    THEN 'Declined App Retarget'
+                                WHEN BEYOND_LOAN_STATUS_CORRECTED IN ('Not Interested', 'Withdrawn') OR
+                                     ABOVE_LOAN_STATUS IN ('WITHDRAWN')
+                                    THEN 'Not Interested Retarget'
                                 WHEN SOURCE_SYSTEM = 'BEDROCK'
-                                    THEN 'BRC-Above-OB - Above Lending - Week 2'
+                                    THEN 'Regular Campaign'
                                 WHEN SOURCE_SYSTEM = 'LEGACY' AND LENDER IN ('Above Lending', 'CRB') AND
                                      PROGRAM_AGE_GROUP IN ('T3-T6', 'T6-T12', 'T12+')
                                     THEN iff(AMOUNT_FINANCED > 40000,
-                                             'Above Lending - HD - Day 1',
-                                             'Above Lending - Day 1')
+                                             'High Dollar Loan',
+                                             'Regular Campaign')
                                 ELSE 'None'
                                 END AS CLIENT_COHORT
                           , CASE
@@ -499,34 +486,17 @@ WITH ELIG_FILE_DATA AS (
                                 ELSE TRUE
                                 END AS FILTER_ABOVE_STATUS
                           , CASE
-                                WHEN CLIENT_COHORT = 'Above Lending - Day 1' THEN
-                                    CASE
-                                        WHEN STATE = 'CA' AND AMOUNT_FINANCED BETWEEN 5000 AND 40000 THEN TRUE
-                                        WHEN STATE <> 'CA' AND AMOUNT_FINANCED BETWEEN 1000 AND 40000 THEN TRUE
-                                        ELSE FALSE
-                                        END
-                                WHEN CLIENT_COHORT = 'Above Lending - HD - Day 1' THEN
-                                    CASE
-                                        WHEN STATE = 'CA' AND AMOUNT_FINANCED BETWEEN 40000 AND 69250 THEN TRUE
-                                        WHEN LENDER = 'CRB' AND AMOUNT_FINANCED BETWEEN 40000 AND 69250 THEN TRUE
-                                        ELSE FALSE
-                                        END
-                                WHEN CLIENT_COHORT = 'BRC-Above-OB - Above Lending - Week 2'
-                                    THEN
-                                    CASE
-                                        WHEN STATE = 'CA' AND AMOUNT_FINANCED BETWEEN 5000 AND 69250 THEN TRUE
-                                        WHEN LENDER = 'CRB' AND AMOUNT_FINANCED BETWEEN 1000 AND 69250 THEN TRUE
-                                        ELSE FALSE
-                                        END
-                                ELSE TRUE
+                                WHEN STATE = 'CA' AND AMOUNT_FINANCED BETWEEN 5000 AND 69250 THEN TRUE
+                                WHEN STATE <> 'CA' AND AMOUNT_FINANCED BETWEEN 1000 AND 69250 THEN TRUE
+                                ELSE FALSE
                                 END AS FILTER_LOAN_AMOUNT
                           , IFF(IS_SPANISH_SPEAKING, FALSE, TRUE) AS FILTER_LANGUAGE
                           , TRUE AS FILTER_NEXT_DEPOSIT_DATE
                           , TRUE AS FILTER_DEPOSIT_ADHERENCE
                           , TRUE AS FILTER_PAYMENT_INCREASE
                           , iff(CREDIT_FLAGS IS NOT NULL, FALSE, TRUE) AS FILTER_CREDIT_FLAGS
-                          , iff(current_date - date_trunc('week', ENROLLED_DATE)::DATE >= 180 OR
-                                datediff('month', ENROLLED_DATE, '2022-05-01') >= 6, TRUE,
+                          , iff(datediff('month', ENROLLED_DATE, current_date) >= 6 AND
+                                current_date - date_trunc('week', ENROLLED_DATE)::DATE >= 180, TRUE,
                                 FALSE) AS FILTER_PROGRAM_DURATION
                           , IFF(CLIENT_COHORT <> 'None'
                                     AND COALESCE(FILTER_ABOVE_STATUS, TRUE)
@@ -539,32 +509,26 @@ WITH ELIG_FILE_DATA AS (
                                     AND COALESCE(FILTER_PAYMENT_INCREASE, TRUE)
                                     AND COALESCE(FILTER_CREDIT_FLAGS, TRUE)
                                     AND COALESCE(FILTER_PROGRAM_DURATION, TRUE), TRUE, FALSE) AS IS_TARGETED
-                          , IFF(IS_TARGETED, CLIENT_COHORT, NULL) AS DIALER_CAMPAIGN
+                          , IFF(IS_TARGETED, IFF(SOURCE_SYSTEM = 'BEDROCK', 'BRC-AboveLending-OB', 'AboveLending-OB'),
+                                NULL) AS DIALER_CAMPAIGN
                           , CASE
                                 WHEN NOT IS_TARGETED THEN NULL
-                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
-                                                       'Above Lending - Day 1',
-                                                       'BRC-Above-OB - Above Lending - Week 2')
-                                    AND CNT_OB_DIALS <= 5 THEN 'High Priority'
-                                WHEN CLIENT_COHORT IN ('AboveLending-RT-Declined-OB', 'BRC-AboveLending-RT-Declined-OB')
+                                WHEN CLIENT_COHORT IN ('High Dollar Loan', 'Regular Campaign')
+                                    AND CNT_OB_DIALS <= 5
                                     THEN 'High Priority'
-                                WHEN CLIENT_COHORT IN ('AboveLending-RT-Expired-OB', 'BRC-AboveLending-RT-Expired-OB')
+                                WHEN CLIENT_COHORT IN ('Declined App Retarget')
+                                    THEN 'High Priority'
+                                WHEN CLIENT_COHORT IN ('Expired App Retarget')
                                     THEN 'Medium Priority'
-                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
-                                                       'Above Lending - Day 1',
-                                                       'BRC-Above-OB - Above Lending - Week 2'
-                                    ) AND CNT_OB_DIALS BETWEEN 6 AND 15 THEN 'Medium Priority'
-                                WHEN CLIENT_COHORT IN (
-                                                       'AboveLending-Retarget-OB',
-                                                       'BRC-AboveLending-RT-NotInterested-OB'
-                                    ) AND CNT_OB_DIALS <= 15 THEN 'Medium Priority'
-                                WHEN CLIENT_COHORT IN
-                                     ('AboveLending-Retarget-OB', 'BRC-AboveLending-RT-NotInterested-OB') AND
-                                     CNT_OB_DIALS >= 16
+                                WHEN CLIENT_COHORT IN ('High Dollar Loan', 'Regular Campaign')
+                                    AND CNT_OB_DIALS BETWEEN 6 AND 15
+                                    THEN 'Medium Priority'
+                                WHEN CLIENT_COHORT IN ('Not Interested Retarget') AND CNT_OB_DIALS <= 15
+                                    THEN 'Medium Priority'
+                                WHEN CLIENT_COHORT IN ('Not Interested Retarget') AND CNT_OB_DIALS >= 16
                                     THEN 'Low Priority'
-                                WHEN CLIENT_COHORT IN ('Above Lending - HD - Day 1',
-                                                       'Above Lending - Day 1',
-                                                       'BRC-Above-OB - Above Lending - Week 2') AND CNT_OB_DIALS >= 11
+                                WHEN CLIENT_COHORT IN ('High Dollar Loan', 'Regular Campaign') AND
+                                     CNT_OB_DIALS >= 16
                                     THEN 'Low Priority'
                                 ELSE '???'
                                 END AS DIALER_LIST
