@@ -1161,7 +1161,7 @@ WITH LAST_NSF AS (
                                      END) OVER (PARTITION BY P.PROGRAM_ID)
                      -
                              CFT_ACCOUNT_BALANCE.AVAILABLE_BALANCE AS DECIMAL(18, 2))
-                            + 2 * (nvl(P.MONTHLY_LEGAL_SERVICE_FEE, 0) + nvl(P.MONTHLY_TRUST_ACCOUNT_SERVICE_FEE, 0))
+                            + 6 * (nvl(P.MONTHLY_LEGAL_SERVICE_FEE, 0) + nvl(P.MONTHLY_TRUST_ACCOUNT_SERVICE_FEE, 0))
                             AS AMOUNT_FINANCED
                       , sum(CASE
                                 WHEN upper(TL_LIST.TRADELINE_SETTLEMENT_STATUS) NOT IN ('SETTLED', 'ATTRITED')
@@ -1171,7 +1171,7 @@ WITH LAST_NSF AS (
                                     THEN TL_LIST.FEES_OUTSTANDING_AMOUNT
                                 ELSE 0
                                 END) OVER (PARTITION BY P.PROGRAM_ID)
-                            + 2 * (nvl(P.MONTHLY_LEGAL_SERVICE_FEE, 0) +
+                            + 6 * (nvl(P.MONTHLY_LEGAL_SERVICE_FEE, 0) +
                                    nvl(P.MONTHLY_TRUST_ACCOUNT_SERVICE_FEE, 0)) AS ESTIMATED_BEYOND_PROGRAM_FEES
                       , CFT_ACCOUNT_BALANCE.AVAILABLE_BALANCE AS TOTAL_DEPOSITS
                       , coalesce(CAST(sum(CASE
