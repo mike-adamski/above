@@ -8,8 +8,8 @@ WITH FIVE9_QUERY AS (
                          , CALL_TIME_IN_SECONDS AS CALL_TIME_S
                          , TALK_TIME_IN_SECONDS AS TALK_TIME_S
                          , DNIS
-                         , ANI
-                         , LEAD_ID
+                         , try_to_number(ANI) AS ANI
+                         , null as LEAD_ID
                          , NULL AS PROSPECT_NAME
                          , PROGRAM_ID AS SALESFORCE_ID
                          , CASE WHEN FIVE9_CALL_LOG.CONTACTED_FLAG THEN 'Yes' ELSE 'No' END AS "five9_call_log.contacted"
