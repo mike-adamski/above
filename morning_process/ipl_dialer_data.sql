@@ -1,88 +1,57 @@
 CREATE OR REPLACE VIEW SNO_SANDBOX.IPL.DIALER_DATA_V AS
 WITH FIVE9_QUERY AS (
                     SELECT CALL_ID
-                         , (TO_CHAR(TO_DATE(try_to_timestamp(FIVE9_CALL_LOG.TIMESTAMP)),
+                         , (TO_CHAR(TO_DATE(FIVE9_CALL_LOG.START_DATE_TIME_CST),
                                     'YYYY-MM-DD')) AS CALLED_DATE
-                         , (TO_CHAR(DATE_TRUNC('second', try_to_timestamp(FIVE9_CALL_LOG.TIMESTAMP)),
+                         , (TO_CHAR(DATE_TRUNC('second', FIVE9_CALL_LOG.START_DATE_TIME_CST),
                                     'YYYY-MM-DD HH24:MI:SS')) AS CALLED_TIME
-                         , 1 * cast(right((CASE
-                                               WHEN LEN(FIVE9_CALL_LOG.CALL_TIME) = 7
-                                                   THEN concat('0', FIVE9_CALL_LOG.CALL_TIME)
-                                               ELSE CALL_TIME
-                                               END), 2) AS INT) + 60 * cast(left(right((CASE
-                                                                                            WHEN LEN(FIVE9_CALL_LOG.CALL_TIME) = 7
-                                                                                                THEN concat('0', FIVE9_CALL_LOG.CALL_TIME)
-                                                                                            ELSE CALL_TIME
-                                                                                            END), 5),
-                                                                                 2) AS INT) + 60 * 60 * cast(
-                            left((CASE
-                                      WHEN LEN(FIVE9_CALL_LOG.CALL_TIME) = 7
-                                          THEN concat('0', FIVE9_CALL_LOG.CALL_TIME)
-                                      ELSE CALL_TIME
-                                      END), 2) AS INT) AS CALL_TIME_S
-                         , 1 * cast(right((CASE
-                                               WHEN LEN(FIVE9_CALL_LOG.TALK_TIME) = 7
-                                                   THEN concat('0', FIVE9_CALL_LOG.TALK_TIME)
-                                               ELSE FIVE9_CALL_LOG.TALK_TIME
-                                               END), 2) AS INT) + 60 * cast(left(right((CASE
-                                                                                            WHEN LEN(FIVE9_CALL_LOG.TALK_TIME) = 7
-                                                                                                THEN concat('0', FIVE9_CALL_LOG.TALK_TIME)
-                                                                                            ELSE FIVE9_CALL_LOG.TALK_TIME
-                                                                                            END), 5),
-                                                                                 2) AS INT) +
-                           60 * 60 * cast(left((CASE
-                                                    WHEN LEN(FIVE9_CALL_LOG.TALK_TIME) = 7
-                                                        THEN concat('0', FIVE9_CALL_LOG.TALK_TIME)
-                                                    ELSE FIVE9_CALL_LOG.TALK_TIME
-                                                    END), 2) AS INT) AS TALK_TIME_S
+                         , CALL_TIME_IN_SECONDS AS CALL_TIME_S
+                         , TALK_TIME_IN_SECONDS AS TALK_TIME_S
                          , DNIS
                          , ANI
-                         , coalesce(FIVE9_CALL_LOG.LEADID,
-                                    (nullif(FIVE9_CALL_LOG.CUSTOM_MATCHEDLEADID, 0)),
-                                    (nullif(FIVE9_CALL_LOG.CUSTOM_VELOCIFYLEADID, 0))) AS LEAD_ID
-                         , PROSPECT_NAME
-                         , SALESFORCE_ID
-                         , (CASE WHEN FIVE9_CALL_LOG.CONTACTED = 1 THEN 'Yes' ELSE 'No' END) AS "five9_call_log.contacted"
-                         , coalesce(FIVE9_CALL_LOG.CAMPAIGN_1, FIVE9_CALL_LOG.CAMPAIGN_2) AS CAMPAIGN
-                         , CAMPAIGN_TYPE
-                         , DISPOSITION
+                         , LEAD_ID
+                         , NULL AS PROSPECT_NAME
+                         , PROGRAM_ID AS SALESFORCE_ID
+                         , CASE WHEN FIVE9_CALL_LOG.CONTACTED_FLAG THEN 'Yes' ELSE 'No' END AS "five9_call_log.contacted"
+                         , CALL_CAMPAIGN AS CAMPAIGN
+                         , CALL_CAMPAIGN_TYPE AS CAMPAIGN_TYPE
+                         , LAST_DISPOSITION AS DISPOSITION
                          , CASE
                                WHEN (CASE
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Saved' THEN 'Saved'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Undecided'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Saved' THEN 'Saved'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Undecided'
                                              THEN 'Undecided'
                                          ELSE 'Other'
                                          END) = 'Saved' THEN 1
                                WHEN (CASE
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Saved' THEN 'Saved'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Undecided'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Saved' THEN 'Saved'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Undecided'
                                              THEN 'Undecided'
                                          ELSE 'Other'
                                          END) = 'Lost' THEN 2
                                WHEN (CASE
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Saved' THEN 'Saved'
-                                         WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Undecided'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Saved' THEN 'Saved'
+                                         WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Undecided'
                                              THEN 'Undecided'
                                          ELSE 'Other'
                                          END) = 'Undecided' THEN 3
                                ELSE 4
                                END AS DISPOSITION_GROUP_SORT_ORDER
                          , CASE
-                               WHEN FIVE9_CALL_LOG.DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
-                               WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Saved' THEN 'Saved'
-                               WHEN FIVE9_CALL_LOG.DISPOSITION = 'Term Call - Undecided' THEN 'Undecided'
+                               WHEN FIVE9_CALL_LOG.LAST_DISPOSITION LIKE 'Term Lost%' THEN 'Lost'
+                               WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Saved' THEN 'Saved'
+                               WHEN FIVE9_CALL_LOG.LAST_DISPOSITION = 'Term Call - Undecided' THEN 'Undecided'
                                ELSE 'Other'
                                END AS DISPOSITION_GROUP
-                         , AGENT
-                         , HANDLE_TIME_SECONDS
-                         , COALESCE(NUMBER1,
-                                    CASE
-                                        WHEN ANI_AREA_CODE IN (800, 888) THEN DNIS
-                                        WHEN DNIS_AREA_CODE IN (800, 888) THEN ANI
-                                        END) AS CUSTOMER_PHONE_NUMBER
+                         , NULL AS AGENT
+                         , HANDLE_TIME_IN_SECONDS AS HANDLE_TIME_SECONDS
+                         , CASE
+                               WHEN ANI_AREA_CODE IN (800, 888) THEN try_to_number(DNIS)
+                               WHEN DNIS_AREA_CODE IN (800, 888) THEN try_to_number(ANI)
+                               END AS CUSTOMER_PHONE_NUMBER
                          , CASE
                                WHEN (
                                             contains(lower(DISPOSITION), 'voicemail')
@@ -151,12 +120,10 @@ WITH FIVE9_QUERY AS (
                                WHEN CAMPAIGN ILIKE '%CSD%' THEN 'IB - CSD'
                                ELSE 'UN'
                                END AS STATE_CAMPAIGN
-                    FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG AS FIVE9_CALL_LOG
-                    WHERE (try_to_timestamp(FIVE9_CALL_LOG.TIMESTAMP)) >= (TO_TIMESTAMP('2021-04-05'))
-                      AND (coalesce(FIVE9_CALL_LOG.CAMPAIGN_1, FIVE9_CALL_LOG.CAMPAIGN_2)) ILIKE
-                          '%above%'
-                      AND (coalesce(FIVE9_CALL_LOG.CAMPAIGN_1, FIVE9_CALL_LOG.CAMPAIGN_2)) NOT ILIKE
-                          '%sales%'
+                    FROM CURATED_PROD.CALL.CALL AS FIVE9_CALL_LOG
+                    WHERE FIVE9_CALL_LOG.START_DATE_TIME_CST >= (TO_TIMESTAMP('2021-04-05'))
+                      AND CALL_CAMPAIGN ILIKE '%above%'
+                      AND CALL_CAMPAIGN NOT ILIKE '%sales%'
                     )
 
    , SALESFORCE_QUERY AS (
@@ -236,7 +203,7 @@ FROM FIVE9_QUERY FN
                FROM SALESFORCE_QUERY SFQ
                    QUALIFY COUNT(DISTINCT PROGRAM_NAME) OVER (PARTITION BY TELEPHONE_NUMBER) = 1
                ) SF2
-               ON TRY_TO_NUMBER(FN.CUSTOMER_PHONE_NUMBER) = TRY_TO_NUMBER(SF2.TELEPHONE_NUMBER)
+               ON FN.CUSTOMER_PHONE_NUMBER = TRY_TO_NUMBER(SF2.TELEPHONE_NUMBER)
      LEFT JOIN CURATED_PROD.CRM.PROGRAM P
                ON SF.PROGRAM_NAME = P.PROGRAM_NAME AND P.IS_CURRENT_RECORD_FLAG
      LEFT JOIN (
@@ -247,4 +214,3 @@ FROM FIVE9_QUERY FN
                GROUP BY 1
                ) AS FCD ON FN.SALESFORCE_ID = FCD.SALESFORCE_ID
 WHERE TRUE;
-
