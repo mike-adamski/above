@@ -32,17 +32,17 @@ WITH LAST_NSF AS (
                                      END AS AMOUNT
                                , CASE
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) <= 3 THEN
-                                             ((POWER(1 + (0.27 / 12), 72) - 1)) /
-                                             ((0.27 / 12) * (POWER(1 + (0.27 / 12), 72)))
+                                             ((POWER(1 + (0.27 / 12), 55) - 1)) /
+                                             ((0.27 / 12) * (POWER(1 + (0.27 / 12), 55)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 4 THEN
-                                             ((POWER(1 + (0.256 / 12), 72) - 1)) /
-                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 72)))
+                                             ((POWER(1 + (0.256 / 12), 55) - 1)) /
+                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 55)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 5 THEN
-                                             ((POWER(1 + (0.2435 / 12), 72) - 1)) /
-                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 72)))
+                                             ((POWER(1 + (0.2435 / 12), 55) - 1)) /
+                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 55)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) >= 6 THEN
-                                             ((POWER(1 + (0.229 / 12), 72) - 1)) /
-                                             ((0.229 / 12) * (POWER(1 + (0.229 / 12), 72)))
+                                             ((POWER(1 + (0.229 / 12), 55) - 1)) /
+                                             ((0.229 / 12) * (POWER(1 + (0.229 / 12), 55)))
                                      END AS DISCOUNT_FACTOR
                           FROM (
                                SELECT DISTINCT
@@ -1391,7 +1391,7 @@ SELECT DISTINCT
            WHEN PROGRAM_AGE_BUCKET = 'Aged Book'
                THEN IFF((1 - (MONTHLYAMT - ((AMOUNT_FINANCED / .95) / DISCOUNT_FACTOR)) /
                              (CASE WHEN MONTHLYAMT > 0 THEN MONTHLYAMT END)
-                            ) <= 1.60, TRUE, FALSE)
+                            ) <= 1.48, TRUE, FALSE)
            END AS RULE_PAYMENT_SIZE
      , IFF(AMOUNT_FINANCED >= (IFF(STATE = 'CA', 5000, 1000)) AND AMOUNT_FINANCED <= 71250, TRUE,
            FALSE) AS RULE_LOAN_AMOUNT
