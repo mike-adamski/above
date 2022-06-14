@@ -112,7 +112,8 @@ WITH LAST_NSF AS (
                                           ON O.OFFER_ID = SSF.OFFER_ID AND SSF.TRANSACTION_TYPE = 'Settlement Fee' AND
                                              SSF.TRANSACTION_STATUS IN ('Pending', 'Scheduled')
                            WHERE T.IS_CURRENT_RECORD_FLAG = TRUE
-                             AND T.INCLUDE_IN_PROGRAM_FLAG = TRUE
+                             AND (T.INCLUDE_IN_PROGRAM_FLAG = TRUE OR (T.CONDITIONAL_DEBT_STATUS IN ('Pending') AND
+                                                                       T.TRADELINE_SETTLEMENT_STATUS = 'ENROLLED'))
                              AND O.CFT_PAYMENT_SCHEDULED_CREATED_DATE_CST IS NOT NULL
                              AND coalesce(O.SETTLEMENT_BUST_DATE_CST, O.OFFER_CANCELLED_DATE_CST) IS NULL
                            GROUP BY T.PROGRAM_NAME, T.PROGRAM_ID
@@ -132,7 +133,10 @@ WITH LAST_NSF AS (
                                     ON O.TRADELINE_NAME = T.TRADELINE_NAME AND O.IS_CURRENT_RECORD_FLAG = TRUE AND
                                        O.IS_CURRENT_OFFER = TRUE AND O.OFFER_ACCEPTED_DATE_CST IS NOT NULL AND
                                        coalesce(O.OFFER_CANCELLED_DATE_CST, O.SETTLEMENT_BUST_DATE_CST) IS NULL
-                     WHERE T.IS_CURRENT_RECORD_FLAG = TRUE AND T.INCLUDE_IN_PROGRAM_FLAG = TRUE AND O.OFFER_ID IS NULL
+                     WHERE T.IS_CURRENT_RECORD_FLAG = TRUE
+                       AND (T.INCLUDE_IN_PROGRAM_FLAG = TRUE OR
+                            (T.CONDITIONAL_DEBT_STATUS IN ('Pending') AND T.TRADELINE_SETTLEMENT_STATUS = 'ENROLLED'))
+                       AND O.OFFER_ID IS NULL
                      GROUP BY 1
                      )
    , TL_LIST AS (
@@ -172,6 +176,7 @@ WITH LAST_NSF AS (
                      , nvl(TL.CURRENT_ACCOUNT_NUMBER, TL.ORIGINAL_ACCOUNT_NUMBER) AS ACCOUNT_NUMBER
                      , TL.TRADELINE_SETTLEMENT_STATUS
                      , TL.TRADELINE_SETTLEMENT_SUB_STATUS
+                     , TL.CONDITIONAL_DEBT_STATUS
                      , TL.INCLUDE_IN_PROGRAM_FLAG
                      , TL.FEE_BASIS_BALANCE
                 FROM CURATED_PROD.CRM.TRADELINE TL
@@ -1251,7 +1256,10 @@ WITH LAST_NSF AS (
                       LEFT JOIN ACTIVE_DEBTS ON ACTIVE_DEBTS.PROGRAM_ID = P.PROGRAM_ID
                       LEFT JOIN PAYMENT_DATES PD ON PD.PROGRAM_ID = P.PROGRAM_ID
                       LEFT JOIN TL_LIST
-                                ON TL_LIST.PROGRAM_NAME = P.PROGRAM_NAME AND TL_LIST.INCLUDE_IN_PROGRAM_FLAG = TRUE
+                                ON TL_LIST.PROGRAM_NAME = P.PROGRAM_NAME
+                                    AND (TL_LIST.INCLUDE_IN_PROGRAM_FLAG = TRUE OR
+                                         (TL_LIST.CONDITIONAL_DEBT_STATUS IN ('Pending') AND
+                                          TL_LIST.TRADELINE_SETTLEMENT_STATUS = 'ENROLLED'))
                       LEFT JOIN DEFERRAL ON DEFERRAL.PROGRAM_ID = P.PROGRAM_ID
 --  left join REFINED_PROD.SALESFORCE.NU_DSE_FEE_TEMPLATE_C ft ON ft.id = program.NU_DSE_FEE_TEMPLATE_C
                       LEFT JOIN NEXT_DRAFT_DATE NDD ON NDD.PROGRAM_NAME = P.PROGRAM_NAME
