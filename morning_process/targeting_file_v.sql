@@ -386,7 +386,8 @@ WITH ELIG_FILE_DATA AS (
                                 WHEN STATE IN ('CA') THEN 'Above Lending'
                                 WHEN STATE IN
                                      ('TX', 'NC', 'IN', 'MO', 'AL', 'NM', 'TN', 'MS', 'MT', 'KY', 'FL', 'MI', 'AK',
-                                      'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD')
+                                      'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD',
+                                      'NE')
                                     THEN 'CRB'
                                 END AS LENDER
                           , CASE
