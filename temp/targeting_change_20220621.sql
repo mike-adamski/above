@@ -424,10 +424,7 @@ WITH ELIG_FILE_DATA AS (
                      SELECT *
                           , CASE
                                 WHEN CLIENT_MAILING_STATE IN ('CA') THEN 'Above Lending'
-                                WHEN CLIENT_MAILING_STATE IN
-                                     ('TX', 'NC', 'IN', 'MO', 'AL', 'NM', 'TN', 'MS', 'MT', 'KY', 'FL', 'MI', 'AK',
-                                      'SD', 'DC', 'OK', 'WI', 'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD')
-                                    THEN 'CRB'
+                                ELSE 'CRB'
                                 END AS LENDER
                           , CASE
                                 WHEN LENDER IS NULL OR PROGRAM_NAME IN (
