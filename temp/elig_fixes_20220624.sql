@@ -375,13 +375,13 @@ WHERE P.IS_CURRENT_RECORD_FLAG=TRUE and P.PROGRAM_STATUS in ('Active','New')
       and NU_DSE_FEE_TEMPLATE_C_VW.is_deleted_flag = FALSE
    ),
   termination_requested as (
-      select distinct NU_DSE__PROGRAM__C_ID
-      from REFINED_PROD.FIVE9_LEGACY.call_log
-      where disposition = '09 Termination Requested'
+      SELECT DISTINCT PROGRAM_ID
+      FROM CURATED_PROD.CALL.CALL C
+      WHERE LAST_DISPOSITION ILIKE '%term%'
   ),
   dnc as (
       select distinct cast(dnc_number as nvarchar) dnc_number
-      from REFINED_PROD.FIVE9_LEGACY.dnc
+      from CURATED_PROD.CALL.DNC_REPORT
   ),
   prior_loan_applicant as (
       SELECT DISTINCT
@@ -903,7 +903,7 @@ fees_outstanding as (
   left join next_draft_date ndd on ndd.program_name = program.name
   left join creditor_settlements c on c.original_creditor = tl_list.original_creditor
       and c.current_creditor = tl_list.current_creditor
-  left join termination_requested on termination_requested.NU_DSE__PROGRAM__C_ID = program.id
+  left join termination_requested on termination_requested.program_id = program.id
   left join dnc on dnc.dnc_number = REPLACE(regexp_replace(nvl(program.cell_phone_c, nvl(program.home_phone_c, program.work_phone_c)),'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
   left join prior_loan_applicant on prior_loan_applicant.program_id = program.id
   left join cft_monthly_fees on cft_monthly_fees.program_id = program.id
@@ -949,7 +949,7 @@ fees_outstanding as (
   and program.CREATED_DATE_CST < dateadd(month, -3, cast(CURRENT_DATE - 1 as date))
   and recent_payments.program_id is not null
   and coalesce(DA90.DEPADHERENCE,0) >= 0.95
-  and termination_requested.NU_DSE__PROGRAM__C_ID is null
+  and termination_requested.program_id is null
   and coalesce(swc.FICO,fico_score.credit_score) >= 540
   and ccpa1.ccpa_phone is null
   and ccpa2.ccpa_phone is null
@@ -1070,7 +1070,7 @@ fees_outstanding as (
   left join next_draft_date ndd on ndd.program_name = program.name
   left join creditor_settlements c on c.original_creditor = tl_list.original_creditor
       and c.current_creditor = tl_list.current_creditor
-  left join termination_requested on termination_requested.NU_DSE__PROGRAM__C_ID = program.id
+  left join termination_requested on termination_requested.program_id = program.id
   left join dnc on dnc.dnc_number = REPLACE(regexp_replace(nvl(program.cell_phone_c, nvl(program.home_phone_c, program.work_phone_c)),'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
   left join prior_loan_applicant on prior_loan_applicant.program_id = program.id
   left join cft_monthly_fees on cft_monthly_fees.program_id = program.id
@@ -1536,13 +1536,13 @@ from (
       and NU_DSE_FEE_TEMPLATE_C_VW.is_deleted_flag = FALSE
    ),*/
   termination_requested as (
-      select distinct NU_DSE__PROGRAM__C_ID
-      from REFINED_PROD.FIVE9_LEGACY.call_log
-      where disposition = '09 Termination Requested'
+      SELECT DISTINCT PROGRAM_ID
+      FROM CURATED_PROD.CALL.CALL C
+      WHERE LAST_DISPOSITION ILIKE '%term%'
   ),
   dnc as (
-      select distinct cast(dnc_number as nvarchar) dnc_number
-      from REFINED_PROD.FIVE9_LEGACY.dnc
+      select distinct cast(dnc_number as nvarchar) as dnc_number
+      from CURATED_PROD.CALL.DNC_REPORT
   ),
   prior_loan_applicant as (
     Select distinct
@@ -2114,7 +2114,7 @@ DQ as (
   left join next_draft_date ndd on ndd.program_name = p.program_name
   left join creditor_settlements c on c.original_creditor = tl_list.original_creditor
       and c.current_creditor = tl_list.current_creditor
-  left join termination_requested on termination_requested.NU_DSE__PROGRAM__C_ID = p.program_id
+  left join termination_requested on termination_requested.program_id = p.program_id
   left join dnc dnc1 on dnc1.dnc_number = REPLACE(regexp_replace(ct.MOBILE_PHONE,'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
   left join dnc dnc2 on dnc2.dnc_number = REPLACE(regexp_replace(ct.PHONE,'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
   left join dnc dnc3 on dnc3.dnc_number = REPLACE(regexp_replace(ct.HOME_PHONE,'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
@@ -2160,7 +2160,7 @@ DQ as (
   and p.CREATED_DATE_CST < dateadd(month, -3, cast(CURRENT_DATE - 1 as date))
   and recent_payments.program_id is not null
   and coalesce(DA90.DepAdherence,0) >= 0.95
-  and termination_requested.NU_DSE__PROGRAM__C_ID is null
+  and termination_requested.program_id is null
   and fico_score.credit_score >= 540
   and ccpa1.ccpa_phone is null
   and ccpa2.ccpa_phone is null
@@ -2283,7 +2283,7 @@ DQ as (
   left join next_draft_date ndd on ndd.program_name = p.program_name
   left join creditor_settlements c on c.original_creditor = tl_list.original_creditor
       and c.current_creditor = tl_list.current_creditor
-  left join termination_requested on termination_requested.NU_DSE__PROGRAM__C_ID = p.program_id
+  left join termination_requested on termination_requested.program_id = p.program_id
   left join dnc on dnc.dnc_number = REPLACE(regexp_replace(nvl(ct.MOBILE_PHONE, nvl(ct.HOME_PHONE, nvl(ct.PHONE,ct.OTHER_PHONE))),'[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
   left join prior_loan_applicant on prior_loan_applicant.Program_ID_C = p.PROGRAM_ID
   left join cft_monthly_fees on cft_monthly_fees.program_id = P.program_id
@@ -2326,7 +2326,6 @@ DQ as (
   and p.CREATED_DATE_CST < dateadd(month, -3, cast(CURRENT_DATE - 1 as date))
   and recent_payments.program_id is not null
   and coalesce(DA180.DepAdherence,0) >= 0.80
-  and termination_requested.NU_DSE__PROGRAM__C_ID is null
   --and fico_score.credit_score >= 600
   and ccpa1.ccpa_phone is null
   and ccpa2.ccpa_phone is null
