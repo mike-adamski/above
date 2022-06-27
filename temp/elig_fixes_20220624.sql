@@ -375,13 +375,13 @@ WHERE P.IS_CURRENT_RECORD_FLAG=TRUE and P.PROGRAM_STATUS in ('Active','New')
       and NU_DSE_FEE_TEMPLATE_C_VW.is_deleted_flag = FALSE
    ),
   termination_requested as (
-      SELECT DISTINCT PROGRAM_ID
-      FROM CURATED_PROD.CALL.CALL C
-      WHERE LAST_DISPOSITION ILIKE '%term%'
+      SELECT DISTINCT coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) AS program_id
+      FROM REFINED_PROD.FIVE9.CALL
+      WHERE DISPOSITION ILIKE '%term%'
   ),
   dnc as (
       select distinct cast(dnc_number as nvarchar) dnc_number
-      from CURATED_PROD.CALL.DNC_REPORT
+      from REFINED_PROD.FIVE9.DNC
   ),
   prior_loan_applicant as (
       SELECT DISTINCT
@@ -1536,13 +1536,13 @@ from (
       and NU_DSE_FEE_TEMPLATE_C_VW.is_deleted_flag = FALSE
    ),*/
   termination_requested as (
-      SELECT DISTINCT PROGRAM_ID
-      FROM CURATED_PROD.CALL.CALL C
-      WHERE LAST_DISPOSITION ILIKE '%term%'
+      SELECT DISTINCT coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) AS program_id
+      FROM REFINED_PROD.FIVE9.CALL
+      WHERE DISPOSITION ILIKE '%term%'
   ),
   dnc as (
       select distinct cast(dnc_number as nvarchar) as dnc_number
-      from CURATED_PROD.CALL.DNC_REPORT
+      from REFINED_PROD.FIVE9.DNC
   ),
   prior_loan_applicant as (
     Select distinct
