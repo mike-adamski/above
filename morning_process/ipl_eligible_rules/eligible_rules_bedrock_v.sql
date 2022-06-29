@@ -456,13 +456,13 @@ WITH LAST_NSF AS (
         and NU_DSE_FEE_TEMPLATE_C_VW.is_deleted_flag = FALSE
      ),*/
    , TERMINATION_REQUESTED AS (
-                              SELECT DISTINCT NU_DSE__PROGRAM__C_ID
-                              FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG
-                              WHERE DISPOSITION = '09 Termination Requested'
+                              SELECT DISTINCT coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) AS PROGRAM_ID
+                              FROM REFINED_PROD.FIVE9.CALL
+                              WHERE DISPOSITION ILIKE '%term%'
                               )
    , DNC AS (
             SELECT DISTINCT cast(DNC_NUMBER AS NVARCHAR) AS DNC_NUMBER
-            FROM REFINED_PROD.FIVE9_LEGACY.DNC
+            FROM REFINED_PROD.FIVE9.DNC
             )
    , PRIOR_LOAN_APPLICANT AS (
                              SELECT DISTINCT
@@ -1238,7 +1238,7 @@ WITH LAST_NSF AS (
                       , coalesce(DNC1.DNC_NUMBER, DNC2.DNC_NUMBER, DNC3.DNC_NUMBER, DNC4.DNC_NUMBER) AS DNC_NUMBER_NEW
                       , DNC.DNC_NUMBER AS DNC_NUMBER_AGED
                       , RECENT_PAYMENTS.PROGRAM_ID AS RECENT_PAYMENTS_PROGRAM_ID
-                      , TERMINATION_REQUESTED.NU_DSE__PROGRAM__C_ID AS TERM_REQUESTED_PROGRAM_ID
+                      , TERMINATION_REQUESTED.program_id AS TERM_REQUESTED_PROGRAM_ID
                       , FICO_SCORE.CREDIT_SCORE AS FICO_SCORE
                       , COALESCE(CCPA1.CCPA_PHONE, CCPA2.CCPA_PHONE, CCPA3.CCPA_PHONE, CCPA4.CCPA_PHONE,
                                  CCPA5.CCPA_EMAIL) AS CCPA_CONTACT
@@ -1275,7 +1275,7 @@ WITH LAST_NSF AS (
                       LEFT JOIN NEXT_DRAFT_DATE NDD ON NDD.PROGRAM_NAME = P.PROGRAM_NAME
                       LEFT JOIN CREDITOR_SETTLEMENTS C ON C.ORIGINAL_CREDITOR = TL_LIST.ORIGINAL_CREDITOR
                      AND C.CURRENT_CREDITOR = TL_LIST.CURRENT_CREDITOR
-                      LEFT JOIN TERMINATION_REQUESTED ON TERMINATION_REQUESTED.NU_DSE__PROGRAM__C_ID = P.PROGRAM_ID
+                      LEFT JOIN TERMINATION_REQUESTED ON TERMINATION_REQUESTED.program_id = P.PROGRAM_ID
                       LEFT JOIN DNC ON DNC.DNC_NUMBER = REPLACE(
                          regexp_replace(nvl(CT.MOBILE_PHONE, nvl(CT.HOME_PHONE, nvl(CT.PHONE, CT.OTHER_PHONE))),
                                         '[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')

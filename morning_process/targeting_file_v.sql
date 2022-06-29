@@ -43,27 +43,27 @@ WITH ELIG_FILE_DATA AS (
                        )
    , FIVE9_PHONE_LOOKUP AS (
                            SELECT DISTINCT
-                                  COALESCE(NUMBER1,
-                                           IFF(CAMPAIGN_TYPE IN ('Inbound', '3rd party transfer'), ANI, DNIS)) AS TELEPHONE_NUMBER
+                                  IFF(CAMPAIGN_TYPE IN ('Inbound', '3rd party transfer'), try_to_number(ANI),
+                                      try_to_number(DNIS)) AS TELEPHONE_NUMBER
                                 , last_value(DISPOSITION)
-                                             OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP DESC) AS LAST_BAD_DISPOSITION
-                                , last_value(TIMESTAMP)
-                                             OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_TS
-                           FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG
+                                             OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP_CST DESC) AS LAST_BAD_DISPOSITION
+                                , last_value(TIMESTAMP_CST)
+                                             OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP_CST DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_TS
+                           FROM REFINED_PROD.FIVE9.CALL
                            WHERE CASE
                                      WHEN DISPOSITION IN
                                           ('Transferred To 3rd Party', 'Transferred to Lender',
                                            'Attempted Transfer - Transferred') AND
-                                          try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 14 THEN TRUE
+                                          TIMESTAMP_CST::DATE > CURRENT_DATE - 14 THEN TRUE
                                      WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
-                                          try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
+                                          TIMESTAMP_CST::DATE > CURRENT_DATE - 3 THEN TRUE
                                      WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch',
                                                           'Not Interested - Pre Pitch') AND
-                                          try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
+                                          TIMESTAMP_CST::DATE > CURRENT_DATE - 90 THEN TRUE
                                      WHEN DISPOSITION IN ('Attempted Transfer - Call Back Scheduled',
                                                           'Client Not Available - Post Pitch - Call Back Scheduled',
                                                           'Client Not Available - Pre Pitch - Call Back Scheduled')
-                                         AND try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 7 THEN TRUE
+                                         AND TIMESTAMP_CST::DATE > CURRENT_DATE - 7 THEN TRUE
                                      ELSE FALSE
                                      END
                            )
@@ -303,7 +303,14 @@ WITH ELIG_FILE_DATA AS (
                                 THEN F9PL.LAST_BAD_DISPOSITION
                             WHEN F9.LAST_BAD_DISPOSITION_TS >= F9PL.LAST_BAD_DISPOSITION_TS THEN F9.LAST_BAD_DISPOSITION
                             END AS LAST_BAD_DISPOSITION
-                      , GREATEST(F9.LAST_BAD_DISPOSITION_TS, F9PL.LAST_BAD_DISPOSITION_TS) AS LAST_BAD_DISPOSITION_TS
+                      , CASE
+                            WHEN F9.LAST_BAD_DISPOSITION_TS IS NULL
+                                THEN F9PL.LAST_BAD_DISPOSITION_TS
+                            WHEN F9PL.LAST_BAD_DISPOSITION_TS IS NULL
+                                THEN F9.LAST_BAD_DISPOSITION_TS
+                            ELSE GREATEST(F9.LAST_BAD_DISPOSITION_TS,
+                                          F9PL.LAST_BAD_DISPOSITION_TS)
+                            END AS LAST_BAD_DISPOSITION_TS
                       , CASE
                             WHEN P_L.HAS_CO_CLIENT_C OR P_B.CO_CLIENT_ID_C IS NOT NULL THEN TRUE
                             ELSE FALSE
@@ -328,22 +335,22 @@ WITH ELIG_FILE_DATA AS (
                                 ) R ON D.PROGRAM_NAME = R.PROGRAM_NAME
                       LEFT JOIN (
                                 SELECT DISTINCT
-                                       SALESFORCE_ID
+                                       coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) AS SALESFORCE_ID
                                      , last_value(DISPOSITION)
-                                                  OVER (PARTITION BY SALESFORCE_ID ORDER BY TIMESTAMP DESC) AS LAST_BAD_DISPOSITION
-                                     , last_value(TIMESTAMP)
-                                                  OVER (PARTITION BY SALESFORCE_ID ORDER BY TIMESTAMP DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_TS
-                                FROM REFINED_PROD.FIVE9_LEGACY.CALL_LOG
+                                                  OVER (PARTITION BY coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) ORDER BY TIMESTAMP_CST DESC) AS LAST_BAD_DISPOSITION
+                                     , last_value(TIMESTAMP_CST)
+                                                  OVER (PARTITION BY coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) ORDER BY TIMESTAMP_CST DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_TS
+                                FROM REFINED_PROD.FIVE9.CALL
                                 WHERE CASE
                                           WHEN DISPOSITION IN
                                                ('Transferred To 3rd Party', 'Transferred to Lender',
                                                 'Attempted Transfer - Transferred') AND
-                                               try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 14 THEN TRUE
+                                               TIMESTAMP_CST::DATE > CURRENT_DATE - 14 THEN TRUE
                                           WHEN DISPOSITION IN ('Duplicate', 'Declined') AND
-                                               try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 3 THEN TRUE
+                                               TIMESTAMP_CST::DATE > CURRENT_DATE - 3 THEN TRUE
                                           WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch',
                                                                'Not Interested - Pre Pitch') AND
-                                               try_to_timestamp(TIMESTAMP)::DATE > CURRENT_DATE - 90 THEN TRUE
+                                               TIMESTAMP_CST::DATE > CURRENT_DATE - 90 THEN TRUE
                                           ELSE FALSE
                                           END
                                 ) AS F9 ON F9.SALESFORCE_ID = D.PROGRAM_ID
