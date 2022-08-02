@@ -32,17 +32,17 @@ WITH LAST_NSF AS (
                                      END AS AMOUNT
                                , CASE
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) <= 3 THEN
-                                             ((POWER(1 + (0.27 / 12), 55) - 1)) /
-                                             ((0.27 / 12) * (POWER(1 + (0.27 / 12), 55)))
+                                             ((POWER(1 + (0.27 / 12), 60) - 1)) /
+                                             ((0.27 / 12) * (POWER(1 + (0.27 / 12), 60)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 4 THEN
-                                             ((POWER(1 + (0.256 / 12), 55) - 1)) /
-                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 55)))
+                                             ((POWER(1 + (0.256 / 12), 60) - 1)) /
+                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 60)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 5 THEN
-                                             ((POWER(1 + (0.2435 / 12), 55) - 1)) /
-                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 55)))
+                                             ((POWER(1 + (0.2435 / 12), 60) - 1)) /
+                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 60)))
                                      WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) >= 6 THEN
-                                             ((POWER(1 + (0.229 / 12), 55) - 1)) /
-                                             ((0.229 / 12) * (POWER(1 + (0.229 / 12), 55)))
+                                             ((POWER(1 + (0.229 / 12), 60) - 1)) /
+                                             ((0.229 / 12) * (POWER(1 + (0.229 / 12), 60)))
                                      END AS DISCOUNT_FACTOR
                           FROM (
                                SELECT DISTINCT
