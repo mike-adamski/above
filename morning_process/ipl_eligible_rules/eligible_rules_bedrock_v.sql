@@ -1114,7 +1114,7 @@ WITH LAST_NSF AS (
 
    , ALL_DATA AS (
                  SELECT DISTINCT
-                        P.PROGRAM_NAME
+                     P.PROGRAM_NAME
                       , P.PROGRAM_ID
                       , right(left(P.PROGRAM_ID, 15), 3) || right(left(P.CLIENT_ID, 15), 3) AS ACTIVATION_CODE
                       , P.CREATED_DATE_CST AS PROGRAM_CREATED
@@ -1202,13 +1202,13 @@ WITH LAST_NSF AS (
                       , '' AS TRADELINE_ACCOUNT_NUMBER
 --                       , '121000248' AS ROUTING_NUMBER
 --                       , '4027877604' AS ACCOUNT_NUMBER
-                      , try_to_number(TA.ROUTING_NUMBER_C) AS CFT_ROUTING_NUMBER    // Will return junk data with my permission level
-                      , try_to_number(TA.ACCOUNT_NUMBER_C) AS CFT_ACCOUNT_NUMBER    // Will return junk data with my permission level
+                      , try_to_number(TA.ROUTING_NUMBER_C) AS CFT_ROUTING_NUMBER // Will return junk data with my permission level
+                      , try_to_number(TA.ACCOUNT_NUMBER_C) AS CFT_ACCOUNT_NUMBER // Will return junk data with my permission level
                       , CASE
                             WHEN try_to_number(TA.ROUTING_NUMBER_C) = 053101561 THEN 'WELLS FARGO BANK'
                             WHEN try_to_number(TA.ROUTING_NUMBER_C) = 053112505 THEN 'AXOS BANK'
                             ELSE NULL
-                            END AS CFT_BANK_NAME    // Will return junk data with my permission level
+                            END AS CFT_BANK_NAME // Will return junk data with my permission level
                       , concat(CT.FIRST_NAME, ' ', CT.LAST_NAME) AS CFT_ACCOUNT_HOLDER_NAME // Will return junk data with my permission level
                       , CFT_ACCOUNT_BALANCE.PROCESSOR_CLIENT_ID :: VARCHAR AS EXTERNAL_ID
                       , CASE WHEN COCLIENTS.CT > 0 THEN TRUE ELSE FALSE END AS CO_CLIENT
@@ -1238,7 +1238,7 @@ WITH LAST_NSF AS (
                       , coalesce(DNC1.DNC_NUMBER, DNC2.DNC_NUMBER, DNC3.DNC_NUMBER, DNC4.DNC_NUMBER) AS DNC_NUMBER_NEW
                       , DNC.DNC_NUMBER AS DNC_NUMBER_AGED
                       , RECENT_PAYMENTS.PROGRAM_ID AS RECENT_PAYMENTS_PROGRAM_ID
-                      , TERMINATION_REQUESTED.program_id AS TERM_REQUESTED_PROGRAM_ID
+                      , TERMINATION_REQUESTED.PROGRAM_ID AS TERM_REQUESTED_PROGRAM_ID
                       , FICO_SCORE.CREDIT_SCORE AS FICO_SCORE
                       , COALESCE(CCPA1.CCPA_PHONE, CCPA2.CCPA_PHONE, CCPA3.CCPA_PHONE, CCPA4.CCPA_PHONE,
                                  CCPA5.CCPA_EMAIL) AS CCPA_CONTACT
@@ -1275,7 +1275,7 @@ WITH LAST_NSF AS (
                       LEFT JOIN NEXT_DRAFT_DATE NDD ON NDD.PROGRAM_NAME = P.PROGRAM_NAME
                       LEFT JOIN CREDITOR_SETTLEMENTS C ON C.ORIGINAL_CREDITOR = TL_LIST.ORIGINAL_CREDITOR
                      AND C.CURRENT_CREDITOR = TL_LIST.CURRENT_CREDITOR
-                      LEFT JOIN TERMINATION_REQUESTED ON TERMINATION_REQUESTED.program_id = P.PROGRAM_ID
+                      LEFT JOIN TERMINATION_REQUESTED ON TERMINATION_REQUESTED.PROGRAM_ID = P.PROGRAM_ID
                       LEFT JOIN DNC ON DNC.DNC_NUMBER = REPLACE(
                          regexp_replace(nvl(CT.MOBILE_PHONE, nvl(CT.HOME_PHONE, nvl(CT.PHONE, CT.OTHER_PHONE))),
                                         '[.,\/#!$%\^&\*:{}=\_`~()-]'), ' ', '')
@@ -1329,6 +1329,7 @@ WITH LAST_NSF AS (
                                 ON TL_LIST.TRADELINE_NAME = MATRIX.TRADELINE_NAME
                  WHERE 1 = 1
                    AND P.IS_CURRENT_RECORD_FLAG = TRUE
+                   AND P.SERVICE_ENTITY_NAME = 'Beyond Finance'
                    AND (TL_LIST.TRADELINE_SETTLEMENT_STATUS NOT IN ('ATTRITED', 'NOT ENROLLED')
                      OR (TL_LIST.TRADELINE_SETTLEMENT_STATUS != 'SETTLED' AND
                          TL_LIST.TRADELINE_SETTLEMENT_SUB_STATUS != 'PAID OFF')
@@ -1369,7 +1370,7 @@ SELECT DISTINCT
            END AS RULE_PROGRAM_DURATION
      , IFF(STATE IN
            ('CA', 'MI', 'TX', 'IN', 'NC', 'MO', 'AL', 'NM', 'TN', 'MS', 'MT', 'KY', 'FL', 'AK', 'SD', 'DC', 'OK', 'WI',
-            'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD', 'NE', 'MA'), TRUE, FALSE) AS RULE_STATE
+            'NY', 'PA', 'VA', 'AZ', 'AR', 'UT', 'ID', 'LA', 'MD', 'NE', 'MA', 'GA', 'SC', 'OH'), TRUE, FALSE) AS RULE_STATE
      , IFF((LAST_NSF_DT IS NULL OR LAST_NSF_DT < dateadd(MONTH, -3, cast(current_date - 1 AS DATE))),
            TRUE, FALSE) AS RULE_RECENT_NSF
      , TRUE AS RULE_CO_CLIENT
