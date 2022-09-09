@@ -96,14 +96,14 @@ from (
                 when PAYMENT_FREQUENCY in ('Bi-Weekly') then Per_freq_amount*26/12
                 when PAYMENT_FREQUENCY in ('Monthly') then Per_freq_amount end as amount
         , CASE
-              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) <= 3 THEN ((POWER(1 + (0.27 / 12), 60) - 1)) /
-                                                                              ((0.27 / 12) * (POWER(1 + (0.27 / 12), 60)))
-              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) = 4 THEN ((POWER(1 + (0.256 / 12), 60) - 1)) /
-                                                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 60)))
-              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) = 5 THEN ((POWER(1 + (0.2435 / 12), 60) - 1)) /
-                                                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 60)))
-              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) >= 6 THEN ((POWER(1 + (0.229 / 12), 60) - 1)) /
-                                                                              ((0.229 / 12) * (POWER(1 + (0.229 / 12), 60)))
+              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) <= 3 THEN ((POWER(1 + (0.27 / 12), 66) - 1)) /
+                                                                              ((0.27 / 12) * (POWER(1 + (0.27 / 12), 66)))
+              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) = 4 THEN ((POWER(1 + (0.256 / 12), 66) - 1)) /
+                                                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 66)))
+              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) = 5 THEN ((POWER(1 + (0.2435 / 12), 66) - 1)) /
+                                                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 66)))
+              WHEN datediff(MONTH, ENROLLED_DATE_CST, current_date) >= 6 THEN ((POWER(1 + (0.229 / 12), 66) - 1)) /
+                                                                              ((0.229 / 12) * (POWER(1 + (0.229 / 12), 66)))
               END AS DISCOUNT_FACTOR
     from (
 --          select distinct
@@ -1144,7 +1144,7 @@ fees_outstanding as (
   and COALESCE(swc.SSN_CO,act.nu_dse_ssn_c) is not null
   -- and full_payments.program_id is not null
   qualify (1- (MonthlyAmt - ((Amount_financed/.95) / current_draft_amt.discount_factor))
-          / (case when MonthlyAmt > 0 then MonthlyAmt end)) <= 1.48
+          / (case when MonthlyAmt > 0 then MonthlyAmt end)) <= 1.58
 
   ) a
 
@@ -1203,14 +1203,14 @@ from (
                 when p.PAYMENT_FREQUENCY in ('Bi-Weekly') then Per_freq_amount*26/12
                 when p.PAYMENT_FREQUENCY in ('Monthly') then Per_freq_amount end as amount
         , CASE
-              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) <= 3 THEN ((POWER(1 + (0.27 / 12), 60) - 1)) /
-                                                                              ((0.27 / 12) * (POWER(1 + (0.27 / 12), 60)))
-              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 4 THEN ((POWER(1 + (0.256 / 12), 60) - 1)) /
-                                                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 60)))
-              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 5 THEN ((POWER(1 + (0.2435 / 12), 60) - 1)) /
-                                                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 60)))
-              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) >= 6 THEN ((POWER(1 + (0.229 / 12), 60) - 1)) /
-                                                                              ((0.229 / 12) * (POWER(1 + (0.229 / 12), 60)))
+              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) <= 3 THEN ((POWER(1 + (0.27 / 12), 66) - 1)) /
+                                                                              ((0.27 / 12) * (POWER(1 + (0.27 / 12), 66)))
+              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 4 THEN ((POWER(1 + (0.256 / 12), 66) - 1)) /
+                                                                             ((0.2560 / 12) * (POWER(1 + (0.2560 / 12), 66)))
+              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) = 5 THEN ((POWER(1 + (0.2435 / 12), 66) - 1)) /
+                                                                             ((0.2435 / 12) * (POWER(1 + (0.2435 / 12), 66)))
+              WHEN datediff(MONTH, P.ENROLLED_DATE_CST, current_date) >= 6 THEN ((POWER(1 + (0.229 / 12), 66) - 1)) /
+                                                                              ((0.229 / 12) * (POWER(1 + (0.229 / 12), 66)))
               END AS DISCOUNT_FACTOR
     from (
         select distinct
@@ -2362,7 +2362,7 @@ DQ as (
   and ct.SSN_C is not null
   -- and full_payments.program_id is not null
   qualify (1- (MonthlyAmt - ((Amount_financed/.95) / current_draft_amt.discount_factor))
-          / (case when MonthlyAmt > 0 then MonthlyAmt end)) <= 1.48
+          / (case when MonthlyAmt > 0 then MonthlyAmt end)) <= 1.58
 
   ) b
 where b.amount_financed >= (case when state = 'CA' then 5000 
