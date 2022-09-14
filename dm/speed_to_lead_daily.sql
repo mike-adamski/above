@@ -68,9 +68,9 @@ WITH ALL_PROSPECTS AS (
                                 SELECT 1
                                 FROM CURATED_PROD.PHONE_DATA.FIVE9_CALLS
                                 WHERE CUSTOMER_PHONE_NUMBER = F.PHONE_NUMBER
-                                  AND CALL_TIMESTAMP::DATE = F.PROSPECT_CREATED_TS::DATE
+                                  AND CALL_TIMESTAMP::DATE >= F.PROSPECT_CREATED_TS::DATE
                                   AND CALC_CONTACTED_FLAG = 1
-                            ), 1, 0) AS DAY_0_CONTACT_FLAG
+                            ), 1, 0) AS EVER_CONTACT_FLAG
                              , iff(B.ENROLLED_FLAG, 1, 0) AS ENROLLED_FLAG
                              , iff(B.ENROLLED_FLAG AND FIRST_CALL_CONTACT_FLAG = 1
                                        AND NOT exists(SELECT 1
@@ -80,12 +80,12 @@ WITH ALL_PROSPECTS AS (
                                                         AND CALL_TIMESTAMP > F.FIRST_CALL_TS
                                                         AND CALL_TIMESTAMP <= B.PROGRAM_CREATED_TIME_CST)
                             , 1, 0) AS FIRST_CALL_ENROLLED_FLAG
-                             , iff(B.ENROLLED_FLAG AND PROSPECT_CREATED_TS::DATE = PROGRAM_CREATED_TIME_CST::DATE, 1,
-                                   0) AS DAY_0_ENROLLED_FLAG
+                             , iff(B.ENROLLED_FLAG AND PROSPECT_CREATED_TS::DATE <= PROGRAM_CREATED_TIME_CST::DATE, 1,
+                                   0) AS EVER_ENROLLED_FLAG
                              , iff(FIRST_CALL_ENROLLED_FLAG = 1, B.TOTAL_ENROLLED_DEBT_WITHOUT_CONDITIONAL_DEBT,
                                    NULL) AS FIRST_CALL_ENROLLED_AMOUNT
                         FROM SPEED_TO_LEAD F
-                             LEFT JOIN BEYOND.OUTBOUND_ABOVELENDING.VW_LEAD_DETAIL B
+                             LEFT JOIN ABOVE_STR_OPS.DM_LEAD_TABLE_TEMP B
                                        ON F.CODE = B.DIRECT_MAIL_CODE
                                            AND LEAD_CREATED_TIME_CST > F.PROSPECT_CREATED_TS - INTERVAL '1 day'
                             QUALIFY RANK()
@@ -112,9 +112,9 @@ WITH ALL_PROSPECTS AS (
                                                               AND CALL_TIMESTAMP > F.FIRST_CALL_TS
                                                               AND CALL_TIMESTAMP <= CONVERT_TIMEZONE('America/Chicago', L.CREATED_AT)
                                       ), 1, 0) AS FIRST_CALL_LOAN_FLAG
-                                   , iff(PROSPECT_CREATED_TS::DATE =
+                                   , iff(PROSPECT_CREATED_TS::DATE <=
                                          convert_timezone('America/Chicago', LS.UPDATED_AT)::DATE, 1,
-                                         0) AS DAY_0_LOAN_FLAG
+                                         0) AS EVER_LOAN_FLAG
                               FROM FUNNEL_W_BEYOND F
                                    LEFT JOIN ABOVE_PUBLIC.LOANS L
                                              ON F.CODE = L.CODE
@@ -144,7 +144,7 @@ WITH ALL_PROSPECTS AS (
                       , FIRST_CALL_TYPE
                       , FIRST_CALL_CONTACT_FLAG_FIVE9
                       , FIRST_CALL_CONTACT_FLAG
-                      , DAY_0_CONTACT_FLAG
+                      , EVER_CONTACT_FLAG
                       , CALLED_FLAG
                       , STL_SECS
                       , STL_UNDER_30S_FLAG
@@ -152,7 +152,7 @@ WITH ALL_PROSPECTS AS (
 --                       , greatest(FIRST_CALL_ENROLLED_FLAG, FIRST_CALL_LOAN_FLAG) AS FIRST_CALL_ENROLLED_OR_LOAN
                       , FIRST_CALL_ENROLLED_FLAG
 --                       , greatest(DAY_0_ENROLLED_FLAG, DAY_0_LOAN_FLAG) AS DAY_0_ENROLLED_OR_LOAN
-                      , DAY_0_ENROLLED_FLAG
+                      , EVER_ENROLLED_FLAG
                       , FIRST_CALL_ENROLLED_AMOUNT
                       , STL_GROUP
                       , FIRST_CALL_LOAN_FLAG
@@ -166,14 +166,15 @@ SELECT PROSPECT_CREATED_DATE AS "Date"
      , sum(STL_UNDER_30S_FLAG) AS "# STL within 30s"
      , sum(FIRST_CALL_CONTACT_FLAG) AS "# First Call Contacted"
      , sum(FIRST_CALL_ENROLLED_FLAG) AS "# First Call Enrolled"
-     , sum(DAY_0_CONTACT_FLAG) AS "# Day 0 Contacted"
-     , sum(DAY_0_ENROLLED_FLAG) AS "# Day 0 Enrolled"
+     , sum(EVER_CONTACT_FLAG) AS "# Contacted Ever"
+     , sum(EVER_ENROLLED_FLAG) AS "# Enrolled Ever"
      -- Funnel ratios
      , "# STL within 30s" / "# Leads Created" AS "% STL within 30s"
      , "# First Call Contacted" / "# Leads Created" AS "% First Call Contact"
      , "# First Call Enrolled" / "# First Call Contacted" AS "% First Call Enroll / Contact"
-     , "# Day 0 Contacted" / "# Leads Created" AS "% Day 0 Contact"
-     , "# Day 0 Enrolled" / "# Day 0 Contacted" AS "% Day 0 Enroll / Contact"
+     , "# Contacted Ever" / "# Leads Created" AS "% Contact Ever"
+     , sum(CASE WHEN STL_UNDER_30S_FLAG = 1 THEN EVER_ENROLLED_FLAG ELSE 0 END) /
+       sum(CASE WHEN STL_UNDER_30S_FLAG = 1 THEN EVER_CONTACT_FLAG ELSE 0 END) AS "% Enroll Ever / Contact within 30s"
      -- Drilldown of speed to lead by time buckets
      , count(CASE WHEN STL_GROUP = '1) Within 15s' THEN 1 END) AS "1) Within 15s"
      , count(CASE WHEN STL_GROUP = '2) 16 to 30s' THEN 1 END) AS "2) 16 to 30s"
