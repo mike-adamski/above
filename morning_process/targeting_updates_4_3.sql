@@ -34,20 +34,58 @@ WITH ELIG_FILE_DATA AS (
                                       ) AD ON AD.PROGRAM_NAME = E.PROGRAM_ID
                        WHERE CALENDAR_DATE_CST = CURRENT_DATE
                        )
-   , FIVE9_PHONE_LOOKUP AS (
-                           SELECT DISTINCT
-                                  IFF(CAMPAIGN_TYPE IN ('Inbound', '3rd party transfer'), try_to_number(ANI), try_to_number(DNIS)) AS TELEPHONE_NUMBER
-                                , last_value(DISPOSITION) OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP_CST DESC) AS LAST_BAD_DISPOSITION
-                                , last_value(TIMESTAMP_CST) OVER (PARTITION BY TELEPHONE_NUMBER ORDER BY TIMESTAMP_CST DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_DATE_TIME_CST
-                           FROM REFINED_PROD.FIVE9.CALL
-                           WHERE CASE
-                                     WHEN DISPOSITION IN ('Transferred To 3rd Party', 'Transferred to Lender', 'Attempted Transfer - Transferred') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 14 THEN TRUE
-                                     WHEN DISPOSITION IN ('Duplicate', 'Declined') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 3 THEN TRUE
-                                     WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch', 'Not Interested - Pre Pitch') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 90 THEN TRUE
-                                     WHEN DISPOSITION IN ('Attempted Transfer - Call Back Scheduled', 'Client Not Available - Post Pitch - Call Back Scheduled',
-                                                          'Client Not Available - Pre Pitch - Call Back Scheduled') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 7 THEN TRUE
-                                     ELSE FALSE
-                                     END
+   , FIVE9_DISPOSITIONS AS (
+                           SELECT CALL.PROGRAM_ID
+                                , COALESCE(CONTACT.CONTACT_PHONE_NUMBER1, CASE
+                                                                              WHEN CALL_TYPE IN ('Preview', 'Outbound', 'Manual') THEN try_to_number(DNIS)
+                                                                              WHEN CALL_TYPE IN ('Inbound') THEN try_to_number(ANI)
+                                                                              END) AS CLIENT_PHONE_NUMBER
+                                , CALL.START_DATE_TIME_CST
+                                , CALL.LAST_DISPOSITION
+                                , CASE
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Transferred To 3rd Party',
+                                            'Transferred to Lender',
+                                            'Attempted Transfer - Transferred')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 14
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Not Interested',
+                                            'Not Interested - Post Pitch',
+                                            'Not Interested - Pre Pitch', 'Attempted Transfer - Call Back Scheduled')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 90
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Attempted Transfer - Call Back Scheduled',
+                                            'Client Not Available - Post Pitch - Call Back Scheduled',
+                                            'Client Not Available - Pre Pitch - Call Back Scheduled')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 7
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Assisting Above Agent')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 7
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Duplicate')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 90
+                                      WHEN CALL.LAST_DISPOSITION IN
+                                           ('Declined')
+                                          THEN CALL.START_DATE_TIME_CST::DATE + 3
+                                      END AS COOL_OFF_UNTIL_DATE
+                           FROM CURATED_PROD.CALL.CALL CALL
+                                LEFT JOIN CURATED_PROD.CALL.CONTACT CONTACT
+                                          ON CALL.CONTACT_ID = CONTACT.CONTACT_ID AND CONTACT.IS_CURRENT_RECORD_FLAG
+                           WHERE TRUE
+--                              AND CALL.CALL_CAMPAIGN ILIKE '%above%'
+--                              AND CALL.CALL_CAMPAIGN NOT ILIKE '%sales%'
+                             AND CALL.START_DATE_TIME_CST >= (TO_TIMESTAMP('2021-04-05'))
+                             AND CALL.LAST_DISPOSITION IN ('Transferred To 3rd Party',
+                                                           'Transferred to Lender',
+                                                           'Attempted Transfer - Transferred',
+                                                           'Duplicate',
+                                                           'Declined',
+                                                           'Not Interested',
+                                                           'Not Interested - Post Pitch',
+                                                           'Not Interested - Pre Pitch', 'Attempted Transfer - Call Back Scheduled',
+                                                           'Client Not Available - Post Pitch - Call Back Scheduled',
+                                                           'Client Not Available - Pre Pitch - Call Back Scheduled')
+                             AND COOL_OFF_UNTIL_DATE > CURRENT_DATE
                            )
    , PROGRAM_TO_CREDIT_REPORT AS (
                                  SELECT DISTINCT
@@ -232,12 +270,11 @@ WITH ELIG_FILE_DATA AS (
                             WHEN ENROLLED_DATE_CST <= CURRENT_DATE - INTERVAL '12 months' THEN 'T12+'
                             ELSE '???'
                             END AS PROGRAM_AGE_GROUP
-                      , coalesce(P_L.LOAN_INTEREST_STATUS_C, PLC.LOAN_APPLICATION_INTEREST_C) AS CLIENT_LOAN_INTEREST_STATUS
+                      , PLC.LOAN_APPLICATION_INTEREST_C AS CLIENT_LOAN_INTEREST_STATUS
                       --Incorporate Bedrock Program Loan attributes
                       , PLC.LOAN_APPLICATION_STATUS_C AS BEDROCK_LOAN_APPLICATION_STATUS -- This and loan_application_interest_c are two BR fields that had been a single combined field loan_interest_status_c in Legacy splitting them up here so they can both be used in logic
                       , PLC.LOAN_APPLICATION_DATE_C AS BEDROCK_LOAN_APPLICATION_DATE
-                      , COALESCE(P_L.LOAN_INTEREST_RESPONSE_DATE_C_CST, BR_INTEREST.BR_INTEREST_TS,
-                                 GREATEST(F9.LAST_BAD_DISPOSITION_DATE_TIME_CST, F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST)) AS CLIENT_LOAN_INTEREST_LAST_UPDATED_DATE_TIME_CST
+                      , COALESCE(BR_INTEREST.BR_INTEREST_TS, GREATEST(F9_PROG.START_DATE_TIME_CST, F9_PHONE.START_DATE_TIME_CST)) AS CLIENT_LOAN_INTEREST_LAST_UPDATED_DATE_TIME_CST
                       , R.CURRENT_STATUS AS ABOVE_LOAN_STATUS
                       -- Reconcile statuses in Beyond Salesforce with those coming from Above
                       , CASE
@@ -254,22 +291,18 @@ WITH ELIG_FILE_DATA AS (
                             END AS FUTURE_LOAN_STATUS
                       , R.APP_SUBMIT_DATE AS LOAN_APPLICATION_DATE_CST
                       , CASE
-                            WHEN F9PL.LAST_BAD_DISPOSITION IS NULL THEN F9.LAST_BAD_DISPOSITION
-                            WHEN F9.LAST_BAD_DISPOSITION IS NULL THEN F9PL.LAST_BAD_DISPOSITION
-                            WHEN F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST >= F9.LAST_BAD_DISPOSITION_DATE_TIME_CST THEN F9PL.LAST_BAD_DISPOSITION
-                            WHEN F9.LAST_BAD_DISPOSITION_DATE_TIME_CST >= F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST THEN F9.LAST_BAD_DISPOSITION
+                            WHEN COALESCE(F9_PROG.COOL_OFF_UNTIL_DATE, current_date - 1) >= COALESCE(F9_PHONE.COOL_OFF_UNTIL_DATE, current_date - 1) THEN F9_PROG.LAST_DISPOSITION
+                            ELSE F9_PHONE.LAST_DISPOSITION
                             END AS LAST_BAD_DISPOSITION
                       , CASE
-                            WHEN F9.LAST_BAD_DISPOSITION_DATE_TIME_CST IS NULL THEN F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST
-                            WHEN F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST IS NULL THEN F9.LAST_BAD_DISPOSITION_DATE_TIME_CST
-                            ELSE GREATEST(F9.LAST_BAD_DISPOSITION_DATE_TIME_CST, F9PL.LAST_BAD_DISPOSITION_DATE_TIME_CST)
+                            WHEN COALESCE(F9_PROG.COOL_OFF_UNTIL_DATE, current_date - 1) >= COALESCE(F9_PHONE.COOL_OFF_UNTIL_DATE, current_date - 1) THEN F9_PROG.START_DATE_TIME_CST
+                            ELSE F9_PHONE.START_DATE_TIME_CST
                             END AS LAST_BAD_DISPOSITION_DATE_TIME_CST
                       , CASE
-                            WHEN P_L.HAS_CO_CLIENT_C OR P_B.CO_CLIENT_ID_C IS NOT NULL THEN TRUE
+                            WHEN P_B.CO_CLIENT_ID_C IS NOT NULL THEN TRUE
                             ELSE FALSE
                             END AS HAS_CO_CLIENT_FLAG
                       , CASE
-                            WHEN P_L.LANGUAGE_C = 'Spanish' OR PR.PREFERRED_LANGUAGE_C = 'Spanish' THEN TRUE
                             WHEN P_B.IS_SPANISH_PREFERRED_FLAG_C THEN TRUE
                             ELSE FALSE
                             END AS IS_SPANISH_SPEAKING
@@ -283,22 +316,15 @@ WITH ELIG_FILE_DATA AS (
                                     QUALIFY rank() OVER (PARTITION BY PROGRAM_NAME ORDER BY coalesce(APP_SUBMIT_DATE, '1901-01-01') DESC, LAST_UPDATE_DATE_CST DESC , DECLINE_REASON_TEXT DESC) = 1
                                 ) R ON D.PROGRAM_NAME = R.PROGRAM_NAME
                       LEFT JOIN (
-                                SELECT DISTINCT
-                                       coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) AS SALESFORCE_ID
-                                     , last_value(DISPOSITION) OVER (PARTITION BY coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) ORDER BY TIMESTAMP_CST DESC) AS LAST_BAD_DISPOSITION
-                                     , last_value(TIMESTAMP_CST)
-                                                  OVER (PARTITION BY coalesce(SALESFORCE_PROGRAM_ID, NU_DSE_PROGRAM_C_ID) ORDER BY TIMESTAMP_CST DESC)::TIMESTAMP AS LAST_BAD_DISPOSITION_DATE_TIME_CST
-                                FROM REFINED_PROD.FIVE9.CALL
-                                WHERE CASE
-                                          WHEN DISPOSITION IN ('Transferred To 3rd Party', 'Transferred to Lender', 'Attempted Transfer - Transferred') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 14
-                                              THEN TRUE
-                                          WHEN DISPOSITION IN ('Duplicate', 'Declined') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 3 THEN TRUE
-                                          WHEN DISPOSITION IN ('Not Interested', 'Not Interested - Post Pitch', 'Not Interested - Pre Pitch') AND TIMESTAMP_CST::DATE > CURRENT_DATE - 90 THEN TRUE
-                                          ELSE FALSE
-                                          END
-                                ) AS F9 ON F9.SALESFORCE_ID = D.PROGRAM_ID
-                      LEFT JOIN FIVE9_PHONE_LOOKUP F9PL ON try_to_number(D.TELEPHONE_NUMBER) = F9PL.TELEPHONE_NUMBER
-                      LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROGRAM_C P_L ON D.PROGRAM_NAME = P_L.NAME AND P_L.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
+                                SELECT *
+                                FROM FIVE9_DISPOSITIONS
+                                    QUALIFY ROW_NUMBER() OVER (PARTITION BY PROGRAM_ID ORDER BY COOL_OFF_UNTIL_DATE DESC, START_DATE_TIME_CST DESC) = 1
+                                ) F9_PROG ON F9_PROG.PROGRAM_ID = D.PROGRAM_ID
+                      LEFT JOIN (
+                                SELECT *
+                                FROM FIVE9_DISPOSITIONS
+                                    QUALIFY ROW_NUMBER() OVER (PARTITION BY CLIENT_PHONE_NUMBER ORDER BY COOL_OFF_UNTIL_DATE DESC, START_DATE_TIME_CST DESC) = 1
+                                ) F9_PHONE ON F9_PHONE.CLIENT_PHONE_NUMBER = try_to_number(D.TELEPHONE_NUMBER)
                       LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_C P_B ON D.PROGRAM_NAME = P_B.NAME
                       LEFT JOIN (
                                 SELECT *
@@ -315,7 +341,6 @@ WITH ELIG_FILE_DATA AS (
                                     QUALIFY LOAN_APPLICATION_INTEREST_C IS DISTINCT FROM LAG(LOAN_APPLICATION_INTEREST_C) OVER (PARTITION BY NAME ORDER BY LAST_MODIFIED_DATE_CST DESC)
                                         AND rank() OVER (PARTITION BY NAME ORDER BY LAST_MODIFIED_DATE_CST DESC) = 1
                                 ) BR_INTEREST ON BR_INTEREST.NAME = PLC.NAME
-                      LEFT JOIN REFINED_PROD.SALESFORCE.NU_DSE_PROSPECT_C AS PR ON P_L.PROSPECT_ID_C = PR.ID AND PR.IS_DELETED_FLAG = FALSE AND PR.BEDROCK_MIGRATION_TARGET_UUID_C IS NULL
                       LEFT JOIN CREDIT_REPORT_FAILED_REASON CF ON D.PROGRAM_NAME = CF.PROGRAM_NAME
                       LEFT JOIN OB_DIALS OBD ON D.PROGRAM_NAME = OBD.PROGRAM_NAME
                  )
@@ -326,7 +351,7 @@ WITH ELIG_FILE_DATA AS (
                                 ELSE 'CRB'
                                 END AS LENDER
                           , CASE
-                                WHEN datediff('month', ENROLLED_DATE_CST, current_date) = 6 THEN 'None'
+                                WHEN datediff('month', ENROLLED_DATE_CST, current_date) <= 6 THEN 'None'
                                 WHEN LENDER IS NULL OR PROGRAM_NAME IN (
                                                                        SELECT PROGRAM_NAME
                                                                        FROM TRADES_MISSING_FEES_PAYMENTS
