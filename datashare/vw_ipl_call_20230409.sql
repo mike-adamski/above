@@ -13,39 +13,35 @@ SELECT CALL.START_DATE_TIME_CST
      , CALL.LAST_DISPOSITION
      , AGENT.AGENT_ID
      , AGENT.AGENT_USERNAME
-     , CASE
-           WHEN (
-                        contains(lower(CALL.LAST_DISPOSITION), 'voicemail')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'voicemal')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'not available')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'disconnected')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'not in service')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'wrong number')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'agent error')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'dead air')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'no answer')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'answering machine')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'declined')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'busy')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'unable to leave message')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'queue callback timeout')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'operator intercept')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'dial error')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'unauthorized 3rd party')
-                        OR contains(lower(CALL.LAST_DISPOSITION), 'abandon')
-                        OR CALL.LAST_DISPOSITION IS NULL
-                    ) OR CALL.HANDLE_TIME_IN_SECONDS <= 30
-               THEN FALSE
-           ELSE TRUE
-           END AS CONTACTED_FLAG
+     , LAST_DISPOSITION IN (
+                            'Attempted Transfer',
+                            'Attempted Transfer - Call Back Scheduled',
+                            'Attempted Transfer - Transferred',
+                            'Call Back Scheduled',
+                            'Client Interested, unable to be transferred',
+                            'Client Not Available',
+                            'Client Not Available - Post Pitch',
+                            'Client Not Available - Post Pitch - Call Back Scheduled',
+                            'Client Not Available - Post Pitch - No Call back Scheduled',
+                            'Client Not Available - Pre Pitch',
+                            'Client Not Available - Pre Pitch - Call Back Scheduled',
+                            'Client Not Available - Pre Pitch - No Call Back Scheduled',
+                            'Client Not Interested in Lending Option',
+                            'Contacted',
+                            'Do Not Call',
+                            'Not Interested',
+                            'Not Interested - Post Pitch',
+                            'Not Interested - Pre Pitch',
+                            'Transferred to Lender',
+                            'Transferred To 3rd Party'
+    ) AS CONTACTED_FLAG
      , CASE WHEN lower(LAST_DISPOSITION) LIKE ('%not interested%') THEN TRUE ELSE FALSE END AS NOT_INTERESTED_FLAG
-     , CASE
-           WHEN CALL.LAST_DISPOSITION ILIKE '%transferred to lender%'
-               OR CALL.LAST_DISPOSITION ILIKE '%app completed on call%'
-               OR CALL.LAST_DISPOSITION ILIKE '%transferred to 3rd party%'
-               THEN TRUE
-           ELSE FALSE
-           END AS TRANSFERRED_TO_LENDER
+     , LAST_DISPOSITION IN (
+                            'App Completed on Call',
+                            'Post-Pitch Callback Scheduled-Transferred',
+                            'Pre-Pitch Callback Scheduled-Transferred',
+                            'Transferred To 3rd Party',
+                            'Transferred to Lender') AS TRANSFERRED_TO_LENDER
      , CALL.PROGRAM_ID
      , PROGRAM.PROGRAM_NAME
      , AGENT.AGENT_NAME AS AGENT
@@ -106,5 +102,5 @@ FROM CURATED_PROD.CALL.CALL CALL
      LEFT JOIN CURATED_PROD.CALL.AGENT AGENT ON AGENT.AGENT_KEY = COALESCE(CALL_SEGMENT.AGENT_KEY, AGENT_SEGMENT.AGENT_KEY)
 WHERE CALL.CALL_CAMPAIGN ILIKE '%above%'
   AND CALL.CALL_CAMPAIGN NOT ILIKE '%sales%'
-  AND CALL.START_DATE_TIME_CST >= (TO_TIMESTAMP('2023-01-01'))
+  AND CALL.START_DATE_TIME_CST >= (TO_TIMESTAMP('2021-04-05'))
 ;
