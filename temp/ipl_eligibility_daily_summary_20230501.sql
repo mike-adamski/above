@@ -117,7 +117,7 @@ FROM (
           , LIFETIME_PAYMENT_ADHERENCE
           , TL_NAME AS PROGRAM_TRADELINE_NAME
           , LOAN_AMOUNT_DISCOUNT_FACTOR
-          , ESTIMATED_LOAN_PAYMENT
+          , EST_LOAN_PAYMENT AS ESTIMATED_LOAN_PAYMENT
           , ESTIMATED_LOAN_PAYMENT_INCREASE
           , DAYS_DELINQUENT
           , IS_LEGAL_FLAG
@@ -134,10 +134,12 @@ FROM (
                                      , PT.NAME AS TRADELINE_NAME
                                      , PT.PROGRAM_ID_C AS PROGRAM_ID
                                      , ETC.*
-                                FROM ASSIGNMENTS_PROD.BEDROCK.IPL_ELIGIBILITY_TRADELINE_CALCS ETC
+                                FROM REFINED_PROD.GLUE_SERVICE_PUBLIC.ELIGIBILITY_TRADELINE_CALCS ETC
                                      JOIN REFINED_PROD.BEDROCK.PROGRAM_TRADELINE_C PT ON ETC.TRADELINE_SFID = PT.ID AND NOT PT.IS_DELETED
                                      JOIN REFINED_PROD.BEDROCK.PROGRAM_C P ON PT.PROGRAM_ID_C = P.ID AND NOT P.IS_DELETED
-                                WHERE ETC.CREATED_DATE::DATE = CURRENT_DATE
+                                WHERE ETC.CREATED_AT_UTC::DATE = CURRENT_DATE
+                                  AND PT.TRADELINE_STATUS_C NOT IN ('Completed', 'Not Enrolled', 'Removed')
+                                  AND ESTIMATED_SETTLEMENT_AMOUNT > 0
                                 )
              , PAYMENT_DATES AS (
                                 SELECT *
@@ -637,6 +639,46 @@ FROM (
                                        AND coalesce(O.SETTLEMENT_BUST_DATE_CST, O.OFFER_CANCELLED_DATE_CST) IS NULL
                                      GROUP BY T.PROGRAM_NAME, T.PROGRAM_ID
                                      )
+             -- Get client credit score at enrollment; This is a temporary workaround while product work is done to write this data point directly to the database
+             , ENROLLMENT_CREDIT_SCORE AS (
+                                          -- Union together results and take lower (more conservative) credit score if credit score is found through both join methods
+                                          SELECT PROGRAM_NAME, MIN(CREDIT_SCORE_C) AS ENROLLMENT_CREDIT_SCORE
+                                          FROM (
+                                               /*
+                                               The majority of enrollment credit report data is linked to contacts, some are linked to opportunities, some are linked to both.
+                                               Join credit reports to programs via both objects and take the lower score of the two
+                                                 */
+
+                                               -- Join via opportunity id
+                                               SELECT P.NAME AS PROGRAM_NAME, CR.CREDIT_SCORE_C
+                                               FROM REFINED_PROD.BEDROCK.PROGRAM_C P
+                                                    LEFT JOIN (
+                                                              SELECT *
+                                                              FROM REFINED_PROD.BEDROCK.CR_C
+                                                              WHERE PURPOSE_C IS DISTINCT FROM 'Credit Refresh' AND STATUS_C = 'COMPLETED'
+                                                                  QUALIFY RANK() OVER (PARTITION BY OPPORTUNITY_ID_C ORDER BY CREATED_DATE_CST) = 1
+                                                              ) CR ON P.OPPORTUNITY_ID_C = CR.OPPORTUNITY_ID_C
+                                               WHERE PROGRAM_STATUS_C = 'Enrolled'
+
+                                               UNION
+
+                                               -- Join via contact id
+                                               SELECT P.NAME, CR.CREDIT_SCORE_C
+                                               FROM REFINED_PROD.BEDROCK.CR_C CR
+                                                    JOIN REFINED_PROD.BEDROCK.CONTACT C ON CR.CONTACT_ID_C = C.ID AND NOT C.IS_DELETED
+                                                    JOIN REFINED_PROD.BEDROCK.ACCOUNT A ON C.ACCOUNT_ID = A.ID AND NOT A.IS_DELETED
+                                                    JOIN (
+                                                         SELECT *
+                                                         FROM REFINED_PROD.BEDROCK.PROGRAM_C
+                                                         WHERE PROGRAM_STATUS_C = 'Enrolled'
+                                                             QUALIFY RANK() OVER (PARTITION BY ACCOUNT_ID_C ORDER BY ENROLLMENT_DATE_C DESC) = 1
+                                                         ) P ON P.ACCOUNT_ID_C = A.ID AND NOT P.IS_DELETED
+                                               WHERE CR.STATUS_C = 'COMPLETED'
+                                                 AND CR.PURPOSE_C IS DISTINCT FROM 'Credit Refresh'
+                                                   QUALIFY RANK() OVER (PARTITION BY P.ID ORDER BY CR.CREATED_DATE_CST) = 1
+                                               )
+                                          GROUP BY 1
+                                          )
 
           SELECT DISTINCT
                  EPC.PROGRAM_SFID AS CLIENT_ID
@@ -656,8 +698,9 @@ FROM (
                , PD.PAYMENT_DATE1 AS LAST_PAYMENT_DATE
                , PD.PAYMENT_DATE2 AS LAST_PAYMENT_DATE2
                , EPC.ESTIMATED_LOAN_AMOUNT AS AMOUNT_FINANCED
-               , sum(coalesce(TC.BEYOND_FEES, 0)) OVER (PARTITION BY P.PROGRAM_ID) + COALESCE(EPC.CFT_MONTHLY_FEE, 0) + COALESCE(LEGAL_SERVICE_FEE, 0) AS ESTIMATED_BEYOND_PROGRAM_FEES
-               , EPC.CURRENT_CFT_BALANCE AS TOTAL_DEPOSITS
+               , sum(coalesce(TC.BEYOND_FEES, 0)) OVER (PARTITION BY P.PROGRAM_ID) + COALESCE(/*EPC.CFT_MONHTLY_FEE*/ 64.5, 0) +
+                 COALESCE(/*LEGAL_SERVICE_FEE*/ 89.7, 0) AS ESTIMATED_BEYOND_PROGRAM_FEES
+               , TA.BALANCE_C AS TOTAL_DEPOSITS
                , TC.SETTLEMENT_PAYMENTS AS SETTLEMENT_AMOUNT
                , coalesce(C2.CREDITOR_NAME, TL_LIST.CURRENT_CREDITOR) AS TRADELINE_NAME -- Current creditor
                , '' AS TRADELINE_ACCOUNT_NUMBER
@@ -675,7 +718,7 @@ FROM (
                , PC.IPL_MONTHS_ENROLLED_C AS MONTHS_SINCE_ENROLLMENT
                , NEXT_DRAFT_DATE.NEXT_DRAFT_DATE AS NEXT_PAYMENT_DATE
                , nvl(ACTIVE_DEBTS.UNSETTLED_DEBT, 0) + nvl(NUM_OF_SETTLEMENTS.TERM_PAY_BALANCE, 0) AS TOTAL_AMOUNT_ENROLLED_DEBT
-               , P.ENROLLED_DATE_CST AS BEYOND_ENROLLMENT_DATE
+               , PC.ENROLLMENT_DATE_C AS BEYOND_ENROLLMENT_DATE
                , P.PROGRAM_STATUS AS BEYOND_ENROLLMENT_STATUS
                , PC.IPL_DEPOSITS_FAILED_LAST_90_DAYS_C AS NSFS_3_MONTHS
                , coalesce(C.CREDITOR_NAME, TL_LIST.ORIGINAL_CREDITOR) AS ORIGINAL_CREDITOR -- Enrolled creditor
@@ -694,11 +737,13 @@ FROM (
                , TC.TRADELINE_NAME AS TL_NAME
                , CONSECUTIVE_PAYMENTS.CONSECUTIVE_PAYMENTS_COUNT
                , LDA.LIFETIME_PAYMENT_ADHERENCE
-               , EPC.LOAN_AMOUNT_DISCOUNT_FACTOR
-               , EPC.ESTIMATED_LOAN_PAYMENT
+               , DISCOUNT_FACTOR AS LOAN_AMOUNT_DISCOUNT_FACTOR
+--                , EPC.LOAN_AMOUNT_DISCOUNT_FACTOR
+               , EPC.ESTIMATED_LOAN_AMOUNT / .95 / DISCOUNT_FACTOR AS EST_LOAN_PAYMENT
+--                , EPC.ESTIMATED_LOAN_PAYMENT
                  -- , EPC.ESTIMATED_LOAN_PAYMENT_INCREASE
                  ---- Temporary logic which can be reverted once product fixes the field
-               , EPC.ESTIMATED_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) AS ESTIMATED_LOAN_PAYMENT_INCREASE
+               , EST_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) AS ESTIMATED_LOAN_PAYMENT_INCREASE
                , TC.DAYS_DELINQUENT
                , TC.IS_LEGAL_FLAG
                , TC.TRADELINE_BALANCE
@@ -710,7 +755,7 @@ FROM (
                , TC.ESTIMATED_SETTLEMENT_AMOUNT
           FROM CURATED_PROD.CRM.PROGRAM P
                JOIN REFINED_PROD.BEDROCK.PROGRAM_C PC ON PC.NAME = P.PROGRAM_NAME AND PC.IS_DELETED = FALSE
-               JOIN ASSIGNMENTS_PROD.BEDROCK.IPL_ELIGIBILITY_PROGRAM_CALCS EPC ON EPC.PROGRAM_SFID = P.PROGRAM_ID AND EPC.CREATED_DATE::DATE = CURRENT_DATE
+               JOIN REFINED_PROD.GLUE_SERVICE_PUBLIC.ELIGIBILITY_PROGRAM_CALCS EPC ON EPC.PROGRAM_SFID = P.PROGRAM_ID AND EPC.CREATED_AT_UTC::DATE = CURRENT_DATE
                LEFT JOIN TRADELINE_CAL TC ON TC.PROGRAM_ID = EPC.PROGRAM_SFID
                LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_TRADELINE_C PT ON TC.TRADELINE_SFID = PT.ID AND NOT PT.IS_DELETED
                LEFT JOIN REFINED_PROD.BEDROCK.OFFER_C O ON PT.ACTIVE_OFFER_ID_C = O.ID AND NOT O.IS_DELETED
@@ -719,8 +764,8 @@ FROM (
                LEFT JOIN REFINED_PROD.BEDROCK.ACCOUNT ACT ON ACT.ID = PC.ACCOUNT_ID_C AND ACT.IS_DELETED = FALSE
                LEFT JOIN REFINED_PROD.BEDROCK.ACCOUNT_CONTACT_RELATION ACR ON ACR.ACCOUNT_ID = ACT.ID AND ACR.RELATIONSHIP_C = 'Client' AND ACR.IS_DELETED = FALSE
                LEFT JOIN REFINED_PROD.BEDROCK.CONTACT CT ON ACR.CONTACT_ID = CT.ID AND CT.IS_DELETED = FALSE
-               LEFT JOIN CURATED_PROD.CRM.CREDITOR C ON C.CREDITOR_ID = TC.ENROLLED_CREDITOR_ID AND C.IS_CURRENT_RECORD_FLAG
-               LEFT JOIN CURATED_PROD.CRM.CREDITOR C2 ON C2.CREDITOR_ID = TC.NEGOTIATING_CREDITOR_ID AND C2.IS_CURRENT_RECORD_FLAG
+               LEFT JOIN CURATED_PROD.CRM.CREDITOR C ON C.CREDITOR_ID = TC.ENROLLED_CREDITOR_SFID AND C.IS_CURRENT_RECORD_FLAG
+               LEFT JOIN CURATED_PROD.CRM.CREDITOR C2 ON C2.CREDITOR_ID = TC.NEGOTIATING_CREDITOR_SFID AND C2.IS_CURRENT_RECORD_FLAG
                LEFT JOIN PAYMENT_DATES PD ON PD.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN CFT_ACCOUNT_BALANCE ON CFT_ACCOUNT_BALANCE.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN COCLIENTS ON COCLIENTS.PROGRAM_NAME = P.PROGRAM_NAME
@@ -746,6 +791,7 @@ FROM (
                LEFT JOIN CURRENT_DRAFT_AMT ON CURRENT_DRAFT_AMT.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN ACTIVE_DEBTS ON ACTIVE_DEBTS.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN NUM_OF_SETTLEMENTS ON NUM_OF_SETTLEMENTS.PROGRAM_ID = P.PROGRAM_ID
+               LEFT JOIN ENROLLMENT_CREDIT_SCORE ECS ON ECS.PROGRAM_NAME = P.PROGRAM_NAME
           WHERE 1 = 1
             AND P.IS_CURRENT_RECORD_FLAG = TRUE
             AND PC.IPL_MONTHS_ENROLLED_C >= 6
@@ -778,8 +824,8 @@ FROM (
             AND NOT (STATE = 'OH' AND AMOUNT_FINANCED < 5100)
             AND NOT (STATE = 'SC' AND AMOUNT_FINANCED < 4300)
             --Temporary logic which can be reverted once product fixes the field
-            AND EPC.ESTIMATED_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
-            AND EPC.ENROLLED_CREDIT_SCORE >= 510
+            AND EST_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
+            AND COALESCE(ECS.ENROLLMENT_CREDIT_SCORE, 0) >= 510
             AND EPC.ESTIMATED_LOAN_AMOUNT / 0.95 / CURRENT_DRAFT_AMT.DISCOUNT_FACTOR / nullifzero(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
             -- Temporary logic
             AND NOT STATE = 'CA'
