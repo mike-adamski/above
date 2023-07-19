@@ -295,6 +295,7 @@ WITH ELIG_FILE_DATA AS (
                       , PLC.LOAN_APPLICATION_INTEREST_C AS CLIENT_LOAN_INTEREST_STATUS
                       --Incorporate Bedrock Program Loan attributes
                       , PLC.LOAN_APPLICATION_STATUS_C AS BEDROCK_LOAN_APPLICATION_STATUS -- This and loan_application_interest_c are two BR fields that had been a single combined field loan_interest_status_c in Legacy splitting them up here so they can both be used in logic
+                      , LOAN_APPLICATION_STATUS_UPDATED_DATE_C
                       , PLC.LOAN_APPLICATION_DATE_C AS BEDROCK_LOAN_APPLICATION_DATE
                       , COALESCE(BR_INTEREST.BR_INTEREST_TS, GREATEST(F9_PROG.START_DATE_TIME_CST, F9_PHONE.START_DATE_TIME_CST)) AS CLIENT_LOAN_INTEREST_LAST_UPDATED_DATE_TIME_CST
                       , R.CURRENT_STATUS AS ABOVE_LOAN_STATUS
@@ -319,6 +320,7 @@ WITH ELIG_FILE_DATA AS (
                             ELSE CLIENT_LOAN_INTEREST_STATUS
                             END AS FUTURE_LOAN_STATUS
                       , R.APP_SUBMIT_DATE AS LOAN_APPLICATION_DATE_CST
+                      , R.LAST_UPDATE_DATE_CST AS LOAN_LAST_UPDATED_DATE_TIME_CST
                       , CASE
                             WHEN COALESCE(F9_PROG.COOL_OFF_UNTIL_DATE, current_date - 1) >= COALESCE(F9_PHONE.COOL_OFF_UNTIL_DATE, current_date - 1) THEN F9_PROG.LAST_DISPOSITION
                             ELSE F9_PHONE.LAST_DISPOSITION
@@ -431,6 +433,7 @@ WITH ELIG_FILE_DATA AS (
                                 WHEN SOURCE_SYSTEM = 'BEDROCK' AND
                                      BEDROCK_LOAN_APPLICATION_STATUS NOT IN ('Decline', 'Withdrawn', 'Expired')
                                     AND BEDROCK_LOAN_APPLICATION_STATUS IS NOT NULL
+                                    AND COALESCE(LOAN_APPLICATION_STATUS_UPDATED_DATE_C, '1901-01-01'::DATE) >= CURRENT_DATE - 28
                                     THEN FALSE
                                 WHEN BEDROCK_LOAN_APPLICATION_STATUS IN ('Decline')
                                     AND datediff(DAY, BEDROCK_LOAN_APPLICATION_DATE, current_date) <= 90
@@ -465,7 +468,8 @@ WITH ELIG_FILE_DATA AS (
                           , CASE
                                 WHEN ABOVE_LOAN_STATUS IN
                                      ('INITIAL_TIL_SUBMIT', 'APPROVED', 'OFFERED_SELECTED', 'ADD_INFO_COMPLETE',
-                                      'OFFERED', 'PENDING', 'BASIC_INFO_COMPLETE', 'ONBOARDED') THEN FALSE
+                                      'OFFERED', 'PENDING', 'BASIC_INFO_COMPLETE', 'ONBOARDED')
+                                    AND coalesce(LOAN_APPLICATION_DATE_CST, LOAN_LAST_UPDATED_DATE_TIME_CST, '1900-01-01') >= CURRENT_DATE - 28 THEN FALSE
                                 WHEN ABOVE_LOAN_STATUS IN ('FRONT_END_DECLINED')
                                     AND LOAN_APPLICATION_DATE_CST >= CURRENT_DATE - 90
                                     THEN FALSE
@@ -479,11 +483,7 @@ WITH ELIG_FILE_DATA AS (
                                     THEN FALSE -- Temporarily hold retargeting cohorts out of the dialer
                                 ELSE TRUE
                                 END AS CLIENT_CONTACT_QUALIFY_FLAG
-                          , CASE
-                                WHEN CLIENT_MAILING_STATE = 'CA' AND AMOUNT_FINANCED BETWEEN 5000 AND 69250 THEN TRUE
-                                WHEN CLIENT_MAILING_STATE <> 'CA' AND AMOUNT_FINANCED BETWEEN 1000 AND 69250 THEN TRUE
-                                ELSE FALSE
-                                END AS LOAN_AMOUNT_QUALIFY_FLAG
+                          , TRUE AS LOAN_AMOUNT_QUALIFY_FLAG
                           , IFF(IS_SPANISH_SPEAKING, FALSE, TRUE) AS IS_LANGUAGE_ENGLISH_FLAG
                           , iff(CREDIT_REPORT_FAILED_REASON IS NOT NULL, FALSE, TRUE) AS CREDIT_REPORT_QUALIFY_LOAN_FLAG
                           , iff(datediff('month', ENROLLED_DATE_CST, current_date) >= 6 AND
