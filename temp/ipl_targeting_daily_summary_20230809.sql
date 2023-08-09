@@ -264,10 +264,13 @@ WITH ELIG_FILE_DATA AS (
                                        AND (T.FEES_OUTSTANDING_AMOUNT = 0 OR T.FEES_OUTSTANDING_AMOUNT IS NULL)
                                      )
    , OB_DIALS AS (
-                 SELECT PROGRAM_NAME, count(*) AS OUTBOUND_DIAL_COUNT
+                 SELECT PROGRAM_NAME
+                      , count(*) AS OUTBOUND_DIAL_COUNT
+                      , count_if(CALL_TIMESTAMP >= CURRENT_DATE - 60) AS OUTBOUND_DIAL_COUNT_L60
                  FROM (
                       SELECT CALL.CALL_ID
                            , PROGRAM.PROGRAM_NAME
+                           , CALL.START_DATE_TIME_CST AS CALL_TIMESTAMP
                       FROM CURATED_PROD.CALL.CALL CALL
                            LEFT JOIN CURATED_PROD.CALL.AGENT_SEGMENT AGENT_SEGMENT
                                      ON AGENT_SEGMENT.CALL_ID = CALL.CALL_ID
@@ -341,6 +344,7 @@ WITH ELIG_FILE_DATA AS (
                       , CF.CREDIT_REPORT_FAILED_REASON
                       , coalesce(OUTBOUND_DIAL_COUNT, 0) AS OUTBOUND_DIAL_COUNT
                       , coalesce(P_B.IS_REMOVED_FROM_IPL_MARKETING_FLAG_C, FALSE) AS ON_DNC_LIST_FLAG
+                      , coalesce(OUTBOUND_DIAL_COUNT_L60, 0) AS OUTBOUND_DIAL_COUNT_L60
                  FROM ELIG_FILE_DATA D
                       LEFT JOIN (
                                 SELECT *
@@ -490,6 +494,7 @@ WITH ELIG_FILE_DATA AS (
                           , iff(datediff('month', ENROLLED_DATE_CST, current_date) >= 6 AND
                                 current_date - date_trunc('week', ENROLLED_DATE_CST)::DATE >= 180, TRUE,
                                 FALSE) AS IS_OLD_AGE_BOOK_FLAG
+                          , coalesce(OUTBOUND_DIAL_COUNT_L60 < 10, FALSE) AS RECENT_DIAL_COUNT_FLAG
                           , IFF(CLIENT_COHORT <> 'None'
                                     AND COALESCE(CLIENT_CONTACT_QUALIFY_FLAG, TRUE)
                                     AND COALESCE(IPL_LOAN_QUALIFY_FLAG, TRUE)
@@ -497,7 +502,8 @@ WITH ELIG_FILE_DATA AS (
                                     AND COALESCE(IS_LANGUAGE_ENGLISH_FLAG, TRUE)
                                     AND COALESCE(LOAN_AMOUNT_QUALIFY_FLAG, TRUE)
                                     AND COALESCE(CREDIT_REPORT_QUALIFY_LOAN_FLAG, TRUE)
-                                    AND COALESCE(IS_OLD_AGE_BOOK_FLAG, TRUE), TRUE, FALSE) AS IS_TARGETED_FLAG
+                                    AND COALESCE(IS_OLD_AGE_BOOK_FLAG, TRUE)
+                                    AND COALESCE(RECENT_DIAL_COUNT_FLAG, TRUE), TRUE, FALSE) AS IS_TARGETED_FLAG
                           , IFF(IS_TARGETED_FLAG, IFF(SOURCE_SYSTEM = 'BEDROCK', 'BRC-AboveLending-OB', 'AboveLending-OB'),
                                 NULL) AS DIALER_CAMPAIGN_NAME
                           , CASE
@@ -562,5 +568,7 @@ SELECT CALENDAR_DATE_CST
      , DIALER_PRIORITY_LIST
      , SERVICE_ENTITY_NAME
      , iff(regexp_replace(PROGRAM_NAME, '[^0-9]+')::INT % 20 BETWEEN 0 AND 2, 'Test', 'Control') AS TESTING_COHORT
+     , OUTBOUND_DIAL_COUNT_L60
+     , RECENT_DIAL_COUNT_FLAG
 FROM COHORT_FLAGS
 WHERE SERVICE_ENTITY_NAME = 'Beyond Finance';
