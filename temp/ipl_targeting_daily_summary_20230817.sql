@@ -532,6 +532,49 @@ AS COOL_OFF_UNTIL_DATE
                                 END AS DIALER_PRIORITY_LIST
                      FROM ALL_DATA
                      )
+    /* TODO - Implement this list of available outbound phone numbers as a configuration table rather than within the logic itself */
+   , IPL_OUTBOUND_PHONE_NUMBERS AS (
+                                   SELECT 8002269085 AS OUTBOUND_ANI
+                                   UNION
+                                   SELECT 8002572496
+                                   UNION
+                                   SELECT 8003039401
+                                   UNION
+                                   SELECT 8003688352
+                                   UNION
+                                   SELECT 8008030617
+                                   UNION
+                                   SELECT 8008761424
+                                   UNION
+                                   SELECT 8552346027
+
+                                   /*
+                                   Additional numbers that will be added within the next week or two:
+                                   8007551691
+                                   8552193566
+                                   8554793293
+                                   */
+                                   )
+    /*
+    Assigning outbound ANIs randomly to targeted leads in order to rotate outbound numbers
+    - Randomly order our targeted lead records and outbound phone numbers (ANIs). Assign row numbers to each.
+    - Count the number of phone numbers that are available to choose from
+    - For each targeted program, tag to an outbound phone number by taking the mod of lead row and joining to a corresponding phone on rownum
+    */
+   , COHORT_FLAGS_W_ANI AS (
+                           SELECT T.*, OB.OUTBOUND_ANI
+                           FROM (
+                                SELECT *, row_number() OVER (ORDER BY random()) AS ROWNUM
+                                FROM COHORT_FLAGS
+                                ) T
+                                LEFT JOIN (
+                                          SELECT *
+                                               , row_number() OVER (ORDER BY random()) AS ROWNUM
+                                               , count(*) OVER () AS CNT_NUMBERS
+                                          FROM IPL_OUTBOUND_PHONE_NUMBERS
+                                          ) OB ON OB.ROWNUM = (T.ROWNUM % CNT_NUMBERS) + 1
+                               AND T.IS_TARGETED_FLAG
+                           )
 
 SELECT CALENDAR_DATE_CST
      , PROGRAM_NAME
@@ -573,5 +616,6 @@ SELECT CALENDAR_DATE_CST
      , CASE WHEN DATE_TRUNC('quarter', ENROLLED_DATE_CST) IN ('2019-07-01', '2019-10-01') THEN 'Beyond Q3/4' END AS TESTING_COHORT
      , OUTBOUND_DIAL_COUNT_L60
      , RECENT_DIAL_COUNT_FLAG
-FROM COHORT_FLAGS
+     , OUTBOUND_ANI
+FROM COHORT_FLAGS_W_ANI
 WHERE SERVICE_ENTITY_NAME = 'Beyond Finance';
