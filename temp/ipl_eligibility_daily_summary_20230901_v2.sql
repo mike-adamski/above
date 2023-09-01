@@ -223,6 +223,7 @@ FROM (
                                , coalesce(C_ORIG.CREDITOR_NAME, CA_ORIG.CREDITOR_ALIAS_NAME) AS ORIGINAL_CREDITOR
                                , coalesce(TL.COLLECTION_AGENCY_PARENT_NAME, TL.COLLECTION_AGENCY_NAME, C_CURR.CREDITOR_NAME, CA_CURR.CREDITOR_ALIAS_NAME, C_ORIG.CREDITOR_NAME,
                                           CA_ORIG.CREDITOR_ALIAS_NAME) AS CURRENT_CREDITOR
+                               , TL.NEGOTIATING_CREDITOR_ID
                                , cast(LLTB.AMOUNT_C AS DECIMAL(18, 2)) AS LATEST_TL_BALANCE_AMOUNT
                                , CASE
                                      WHEN TL.ORIGINAL_SOURCE_SYSTEM IN ('LEGACY') THEN CASE WHEN TL.NEGOTIATION_BALANCE = 0 THEN NULL ELSE cast(TL.NEGOTIATION_BALANCE AS DECIMAL(18, 2)) END
@@ -246,6 +247,8 @@ FROM (
                                , TL.CONDITIONAL_DEBT_STATUS
                                , TL.INCLUDE_IN_PROGRAM_FLAG
                                , TL.FEE_BASIS_BALANCE
+                               , coalesce(TLR.LAST_PAYMENT_DATE_C, CRL.LAST_ACTIVITY_DATE_C, TL.CURRENT_LAST_PAYMENT_DATE_CST, TL.TRADELINE_ENROLLED_DATE_CST, TL.CREATED_DATE_CST) AS LAST_PAYMENT_DATE
+                               , datediff(DAY, LAST_PAYMENT_DATE, current_date) AS DAYS_SINCE_LAST_PAYMENT
                           FROM CURATED_PROD.CRM.TRADELINE TL
                                LEFT JOIN CURATED_PROD.CRM.OFFER OFFER ON TL.TRADELINE_NAME = OFFER.TRADELINE_NAME
                               AND OFFER.IS_CURRENT_RECORD_FLAG = TRUE
@@ -260,6 +263,8 @@ FROM (
                               AND CA_CURR.IS_CURRENT_RECORD_FLAG
                                LEFT JOIN CURATED_PROD.CRM.PROGRAM P ON P.PROGRAM_ID = TL.PROGRAM_ID AND P.IS_CURRENT_RECORD_FLAG = TRUE
                                LEFT JOIN REFINED_PROD.BEDROCK.PROGRAM_TRADELINE_C AS TLR ON TL.TRADELINE_ID = TLR.ID AND TLR.IS_DELETED = FALSE
+                               LEFT JOIN REFINED_PROD.BEDROCK.OPPORTUNITY_TRADELINE_C AS OT ON TLR.OPPORTUNITY_TRADELINE_ID_C = OT.ID AND OT.IS_DELETED = FALSE
+                               LEFT JOIN REFINED_PROD.BEDROCK.CR_LIABILITY_C AS CRL ON CRL.ID = OT.CR_LIABILITY_ID_C AND CRL.IS_DELETED = FALSE
                                LEFT JOIN
                                (
                                SELECT ID
@@ -683,6 +688,53 @@ FROM (
                                                )
                                           GROUP BY 1
                                           )
+             , FIRST_6_MONTH_TRANSACTIONS AS (
+                                             SELECT AT.PROGRAM_NAME
+                                                  , count_if(TRANSACTION_TYPE = 'Deposit' AND TRANSACTION_STATUS IN ('Returned')) AS RETURN_PAYMENT_6MON
+                                             FROM CURATED_PROD.CFT.ACTUAL_TRANSACTION AS AT
+                                                  INNER JOIN CURATED_PROD.SUMMARY.PROGRAM_KPI_SUMMARY AS PKS ON AT.PROGRAM_NAME = PKS.PROGRAM_NAME AND TRANSACTION_DATE_CST <= ENROLLED_DATE_CST + 180
+                                             WHERE TRANSACTION_TYPE IN ('Deposit')
+                                               AND TRANSACTION_STATUS NOT IN ('Scheduled', 'Suspended', 'In_Transit', 'Cancelled')
+                                               AND IS_CURRENT_RECORD_FLAG = TRUE
+                                             GROUP BY 1
+                                             ORDER BY 1
+                                             )
+             , LAST_6_MONTH_TRANSACTIONS AS (
+                                            SELECT DISTINCT
+                                                   PROGRAM_NAME
+                                                 , COUNT_IF(TRANSACTION_TYPE = 'Withdrawal') OVER (PARTITION BY PROGRAM_NAME) AS WITHDRAWAL_ATTEMPTS_LAST6
+                                                   -- counting the distinct number of months within the last 4 that contain
+                                                 , COUNT(DISTINCT CASE
+                                                                      WHEN T.TRANSACTION_TYPE = 'Deposit'
+                                                                          AND TRANSACTION_STATUS = 'Completed'
+                                                                          AND datediff(MONTH, T.TRANSACTION_DATE_CST, CURRENT_DATE) BETWEEN 1 AND 4
+                                                                          THEN DATE_TRUNC(MONTH, T.TRANSACTION_DATE_CST)
+                                                                      END
+                                                       ) OVER (PARTITION BY PROGRAM_NAME) AS NUM_OF_MONTHS_W_DEPOSIT_LAST4
+                                            FROM CURATED_PROD.CFT.ACTUAL_TRANSACTION T
+                                            WHERE T.IS_CURRENT_RECORD_FLAG
+                                              AND T.TRANSACTION_STATUS NOT IN ('Cancelled')
+                                              AND T.TRANSACTION_DATE_CST BETWEEN CURRENT_DATE - INTERVAL '6 months' AND CURRENT_DATE - 1
+                                            )
+             , DAYS_TO_SETTLE_BY_CREDITOR AS (
+                                             SELECT CREDITOR_ID_C, MIN(DAYS_DELINQUENT_MIN_C) AS DAYS_TO_SETTLE
+                                             FROM REFINED_PROD.BEDROCK.CREDITOR_TERMS_C
+                                             WHERE NOT IS_DELETED
+                                             GROUP BY 1
+                                             )
+             , TRADELINES_SETTLEABLE AS (
+                                        SELECT TL.*
+                                             , DTS.DAYS_TO_SETTLE IS NOT NULL AS HAS_CREDITOR_MATRIX_RECORD
+                                             , coalesce(DTS.DAYS_TO_SETTLE, 180) AS REQ_DAYS_TO_SETTLE
+                                             , DAYS_SINCE_LAST_PAYMENT + 60 >= REQ_DAYS_TO_SETTLE AS IS_DQ_ENOUGH_TO_SETTLE -- consider a TL as 'dq enough' if it's within 60 days of being aged enough to settle
+                                        FROM TL_LIST TL
+                                             LEFT JOIN DAYS_TO_SETTLE_BY_CREDITOR DTS ON TL.NEGOTIATING_CREDITOR_ID = DTS.CREDITOR_ID_C
+                                        )
+             , PROGRAMS_NOT_SETTLEABLE AS (
+                                          SELECT DISTINCT PROGRAM_NAME
+                                          FROM TRADELINES_SETTLEABLE
+                                          WHERE NOT IS_DQ_ENOUGH_TO_SETTLE
+                                          )
 
           SELECT DISTINCT
                  PC.ID AS CLIENT_ID
@@ -796,6 +848,9 @@ FROM (
                LEFT JOIN CURRENT_DRAFT_AMT ON CURRENT_DRAFT_AMT.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN ACTIVE_DEBTS ON ACTIVE_DEBTS.PROGRAM_ID = P.PROGRAM_ID
                LEFT JOIN NUM_OF_SETTLEMENTS ON NUM_OF_SETTLEMENTS.PROGRAM_ID = P.PROGRAM_ID
+               LEFT JOIN FIRST_6_MONTH_TRANSACTIONS F6T ON F6T.PROGRAM_NAME = P.PROGRAM_NAME
+               LEFT JOIN LAST_6_MONTH_TRANSACTIONS L6T ON L6T.PROGRAM_NAME = P.PROGRAM_NAME
+               LEFT JOIN PROGRAMS_NOT_SETTLEABLE PNS ON PNS.PROGRAM_NAME = P.PROGRAM_NAME
           WHERE 1 = 1
             AND P.IS_CURRENT_RECORD_FLAG = TRUE
             AND PC.IPL_MONTHS_ENROLLED_C >= 9
@@ -827,6 +882,18 @@ FROM (
             AND NOT (STATE = 'MA' AND AMOUNT_FINANCED < 6001)
             AND NOT (STATE = 'OH' AND AMOUNT_FINANCED < 5100)
             AND NOT (STATE = 'SC' AND AMOUNT_FINANCED < 4300)
+            -- Limit loan amounts to between 5000 and 65000 (after accounting for 5% origination fee; e.g. 4750 /.95 = 5000)
+            AND AMOUNT_FINANCED <= 38000
+            -- Must have 0 returned deposits in first 6 months to qualify at 6 mo; or 1 returned deposit to qualify at 12; otherwise, not eligible ever
+            AND CASE
+                    WHEN MONTHS_ENROLLED >= 6 AND F6T.RETURN_PAYMENT_6MON = 0 THEN TRUE
+                    WHEN MONTHS_ENROLLED >= 12 AND F6T.RETURN_PAYMENT_6MON <= 1 THEN TRUE
+                    ELSE FALSE
+                    END
+            -- Must have made a deposit in each of the last 4 full months
+            AND coalesce(L6T.NUM_OF_MONTHS_W_DEPOSIT_LAST4, 0) = 4
+            -- Cannot have made a withdrawal from CFT in last 6 months
+            AND coalesce(L6T.WITHDRAWAL_ATTEMPTS_LAST6, 0) = 0
             --Temporary logic which can be reverted once product fixes the field
             AND EST_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
             AND COALESCE(EPC.ENROLLED_CREDIT_SCORE, 0) >= 525
