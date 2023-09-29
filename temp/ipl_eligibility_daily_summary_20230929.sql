@@ -898,6 +898,17 @@ FROM (
             AND EST_LOAN_PAYMENT / NULLIFZERO(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
             AND COALESCE(EPC.ENROLLED_CREDIT_SCORE, 0) >= 525
             AND EPC.ESTIMATED_LOAN_AMOUNT / 0.95 / CURRENT_DRAFT_AMT.DISCOUNT_FACTOR / nullifzero(CURRENT_DRAFT_AMT.AMOUNT) <= 1.48
+            -- New rule 9/29/23 - customers under T12 have been found to be riskier so must have higher enrolled FICO and lower pay shock in order to be eligible
+            AND (MONTHS_SINCE_ENROLLMENT >= 12 OR (
+                      COALESCE(EPC.ENROLLED_CREDIT_SCORE, 0) >= 600 AND
+                      div0(AMOUNT_FINANCED / .95 / (((POWER(1 + (0.249 / 12), 60) - 1)) / ((0.249 / 12) * (POWER(1 + (0.249 / 12), 60)))), DRAFT_AMOUNT *
+                                                                                                                                           CASE
+                                                                                                                                               WHEN P.PAYMENT_FREQUENCY = 'Bi-Weekly'
+                                                                                                                                                   THEN 26 / 12
+                                                                                                                                               WHEN P.PAYMENT_FREQUENCY = 'Monthly' THEN 1
+                                                                                                                                               WHEN P.PAYMENT_FREQUENCY IN ('Semi-Monthly', 'Twice Monthly')
+                                                                                                                                                   THEN 2
+                                                                                                                                               END) <= 1.2))
             AND div0(AMOUNT_FINANCED / .95 / (((POWER(1 + (0.249 / 12), 60) - 1)) / ((0.249 / 12) * (POWER(1 + (0.249 / 12), 60)))), DRAFT_AMOUNT *
                                                                                                                                      CASE
                                                                                                                                          WHEN P.PAYMENT_FREQUENCY = 'Bi-Weekly' THEN 26 / 12
